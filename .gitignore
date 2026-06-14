@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+
+# Env
+.env
+
+# Node / Next.js
+node_modules/
+frontend/.next/
+frontend/out/
+
+# Data cache / DB
+backend/app/data/cache/
+*.sqlite3
+*.db
+
+# OS
+.DS_Store
+Thumbs.db

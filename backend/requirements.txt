@@ -1,0 +1,24 @@
+# Core API
+fastapi==0.137.0
+uvicorn[standard]==0.49.0
+pydantic==2.13.4
+python-dotenv==1.2.2
+
+# Backtesting engine — vectorbt pulls in numpy/pandas/numba/llvmlite/scipy.
+# These exact versions were smoke-tested together on Python 3.14
+# (see LOG.md, 2026-06-14): vectorbt imports cleanly and numba JIT compiles
+# and runs Portfolio.from_signals correctly.
+vectorbt==1.0.0
+numpy==2.4.6
+pandas==2.3.3
+numba==0.65.1
+llvmlite==0.47.0
+scipy==1.17.1
+
+# Market data
+yfinance==1.4.1
+ccxt==4.5.58
+
+# Testing
+pytest==9.1.0
+httpx==0.28.1
