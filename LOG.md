@@ -56,3 +56,85 @@ rendered image later without changing structure.
   `ERR_INVALID_ARG_TYPE`. Documented the workaround in the README. This is an
   environment quirk, not a project bug — `next build`/`next dev` invoked
   directly work fine.
+
+## 2026-06-14 — Phase 1 complete: dumbest end-to-end slice
+
+Hard-coded strategy (buy SPY when RSI(14) < 30, sell when RSI(14) > 70),
+fetched via yfinance, run through vectorbt. `python -m app.phase1_slice`
+prints metrics with and without retail costs. 19 tests pass
+(`pytest`, `backend/tests/`).
+
+**New modules:**
+- `app/data/market_data.py` — `fetch_daily_bars()`: adjusted-close OHLCV via
+  yfinance, flattens the MultiIndex columns recent yfinance versions return,
+  validates min bar count and rejects suspicious gaps (>10 calendar days).
+- `app/engine/indicators.py` — `wilder_rsi()`.
+- `app/engine/signals.py` — `rsi_threshold_signals()` (raw conditions) +
+  `shift_for_next_bar_execution()` (the no-lookahead shift).
+- `app/engine/backtest.py` — `run_rsi_backtest()`: wires indicators → signals
+  → `vbt.Portfolio.from_signals()` → `BacktestResult`.
+
+**Design decisions (the correctness requirements, addressed):**
+
+1. **No lookahead bias.** Convention: *signal computed from bar i's close →
+   executes at bar i+1's close*. Every raw condition (`rsi < 30`, `rsi > 70`)
+   goes through `shift_for_next_bar_execution()` before vectorbt sees it
+   (vectorbt fills at the same bar's close by default, so shifting first is
+   what makes this next-bar). `test_signals.py::test_no_lookahead_entry_executes_on_bar_after_signal`
+   constructs a price series where same-bar vs next-bar fill prices differ
+   and asserts the fill is the next-bar price.
+
+2. **Wilder's RSI**, not SMA-of-gains/losses. `wilder_rsi()` seeds the
+   average gain/loss with an SMA of the first `period` changes, then applies
+   the recursive `(prev*(period-1) + current) / period` smoothing — the same
+   "RMA" definition TradingView's `ta.rma()`/built-in RSI uses.
+   `test_indicators.py` checks it against an independently-written recursive
+   reference implementation, bounds (0-100), saturation on monotonic
+   series, and that it diverges from a naive rolling-SMA RSI after the seed
+   bar.
+
+3. & 4. **Entry-price tracking / stop-loss persistence** — not yet
+   applicable: the Phase 1 strategy has no stop-loss. vectorbt's
+   `Portfolio.from_signals` tracks entry price internally and exposes it via
+   `trades.records_readable`. Dedicated tests land in **Phase 2** once the IR
+   adds `stop_loss`/`take_profit`, using vectorbt's `sl_stop`/`tp_stop`
+   (which are entry-price-relative and persist until a fresh entry signal —
+   exactly what's required).
+
+5. **Warmup / lookback.** RSI(14) is undefined for the first 14 bars, and the
+   no-lookahead shift consumes one more — `run_rsi_backtest` drops the first
+   `rsi_period + 1` bars and returns the *actual* tested date range
+   (`BacktestResult.start`/`.end`), which `phase1_slice.py` prints. Verified
+   by `test_warmup_window_drops_first_period_plus_one_bars`.
+
+6. **Transaction costs.** `run_rsi_backtest` takes `fees`/`slippage` and is
+   run twice in `phase1_slice.py` — once at Robinhood-tier retail (0
+   commission, 5bps slippage) and once idealized (no costs) — so the cost
+   impact is visible side by side.
+   `test_costs_reduce_returns_relative_to_no_cost_baseline` asserts the
+   cost-adjusted run never beats the no-cost run.
+
+7. **Data sanity.** `fetch_daily_bars` uses `auto_adjust=True` (splits/
+   dividends handled via adjusted close), requires ≥252 bars, and rejects
+   gaps >10 calendar days. Tested with synthetic data (no live-network
+   dependency for the validation logic) plus one live integration test
+   against real SPY data.
+
+**Annualization convention.** yfinance's daily index has no fixed pandas
+`freq` (weekend/holiday gaps), so vectorbt's own `annualized_return()` /
+`sharpe_ratio()` can't infer a `year_freq` and raise. Instead,
+`annualized_return = (1 + total_return) ** (252 / num_bars) - 1` and
+`sharpe = mean(daily_returns) / std(daily_returns) * sqrt(252)`
+(risk-free rate = 0 for v1) — the standard 252-trading-day convention.
+
+**Naive baseline engine (`app/engines/naive/`)** — still empty. The build
+prompt says to port the user's existing hand-rolled RSI backtester here as a
+comparison baseline; that needs the user's existing code, so it's deferred to
+Phase 2 (when the IR/interpreter exist and the "run both engines, report
+divergence" script makes sense).
+
+**Live Phase 1 numbers (SPY, 2010-01-26 to 2026-06-12, 4136 bars fetched):**
+16 trades either way; with 5bps slippage: total return 265.99% / annualized
+8.26% / Sharpe 0.67 / max drawdown -28.32% / win rate 93.75%. Without costs:
+271.89% / 8.36% / 0.68 / -28.32% / 93.75%. (Numbers will drift as more bars
+accumulate over time — this is a snapshot, not a target to match.)
