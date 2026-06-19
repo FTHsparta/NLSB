@@ -97,6 +97,70 @@ def run_rsi_backtest(
     )
 
 
+def run_ir_backtest(
+    ir: dict,
+    price_data: pd.DataFrame,
+    fees: float = 0.0,
+    slippage: float = 0.0,
+    init_cash: float = 10_000,
+) -> BacktestResult:
+    """Run a strategy described by a validated IR dict and return summary metrics.
+
+    This is the generic counterpart to ``run_rsi_backtest``: it calls the safe
+    interpreter to produce entry/exit signals, then runs vectorbt with the same
+    cost model and effective-window logic.
+
+    Parameters
+    ----------
+    ir:
+        Strategy IR dict (validated against the JSON schema).
+    price_data:
+        DataFrame with columns Open, High, Low, Close (yfinance convention).
+    """
+    from app.translation.interpreter import compute_ir_warmup, interpret_ir
+
+    entries, exits = interpret_ir(ir, price_data)
+    warmup = compute_ir_warmup(ir)
+
+    close = price_data["Close"]
+    eff_close = close.iloc[warmup:]
+    eff_entries = entries.iloc[warmup:]
+    eff_exits = exits.iloc[warmup:]
+
+    pf = vbt.Portfolio.from_signals(
+        eff_close,
+        eff_entries,
+        eff_exits,
+        fees=fees,
+        slippage=slippage,
+        init_cash=init_cash,
+    )
+
+    num_trades = int(pf.trades.count())
+    num_bars = len(eff_close)
+    total_return = float(pf.total_return())
+    annualized_return = (1 + total_return) ** (TRADING_DAYS_PER_YEAR / num_bars) - 1
+
+    daily_returns = pf.returns()
+    returns_std = daily_returns.std()
+    sharpe_ratio = (
+        float(daily_returns.mean() / returns_std * np.sqrt(TRADING_DAYS_PER_YEAR))
+        if returns_std > 0
+        else float("nan")
+    )
+
+    return BacktestResult(
+        total_return=total_return,
+        annualized_return=float(annualized_return),
+        sharpe_ratio=sharpe_ratio,
+        max_drawdown=float(pf.max_drawdown()),
+        win_rate=float(pf.trades.win_rate()) if num_trades > 0 else float("nan"),
+        num_trades=num_trades,
+        start=str(eff_close.index[0].date()),
+        end=str(eff_close.index[-1].date()),
+    )
+
+
 def compute_buy_and_hold_metrics(
     close: pd.Series,
     warmup: int,
