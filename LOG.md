@@ -1,5 +1,54 @@
 # Build Log
 
+## 2026-06-19 — Phase 2: strategy IR + safe interpreter
+
+**New files:**
+- `backend/app/translation/strategy_ir.schema.json` — formal JSON Schema (draft 2020-12) for the strategy intermediate representation.
+- `backend/app/translation/interpreter.py` — safe interpreter: IR dict → vectorbt-ready signals.
+- `backend/tests/test_ir.py` — 21 new tests; total now 43, all green.
+
+**New additions to existing files:**
+- `app/engine/indicators.py`: `sma(close, period)` (rolling mean) and `ema(close, period)` (pandas `ewm`, alpha=2/(period+1), no SMA seed).
+- `app/engine/backtest.py`: `run_ir_backtest(ir, price_data, fees, slippage)` — generic counterpart to `run_rsi_backtest`, wires interpreter → vectorbt.
+- `requirements.txt`: `jsonschema==4.26.0`.
+
+---
+
+### Security boundary (restated and formalised)
+
+`backend/app/translation/interpreter.py` is the **sole code path from LLM-generated IR → vectorbt signals**. No `exec`, no `eval`, no dynamic dispatch. The interpreter enforces two independent layers of whitelisting:
+
+1. **Schema layer** (`validate_ir`): `jsonschema.validate` against `strategy_ir.schema.json` rejects any IR that contains an unknown indicator `type` (enum: `["RSI","SMA","EMA"]`) or unknown `op` (enum of 6 operators). This is the first gate.
+
+2. **Interpreter layer** (defence in depth): even if a malformed IR somehow bypasses schema validation, `interpret_ir` re-checks every indicator type and every operator against `_ALLOWED_INDICATOR_TYPES` / `_ALLOWED_OPERATORS` frozensets before computing anything. Unknown values raise `IRInterpreterError`.
+
+Operand resolution is a dict lookup: a string operand is looked up in `indicator_series` (computed from the IR) and then in `price_series` (OHLC columns). If it matches neither, `IRInterpreterError` is raised. There is no fallback that would allow an attacker-controlled string to reach any Python interpreter primitive.
+
+`crosses_above` / `crosses_below` are implemented as pandas boolean series operations (`shift(1)` + comparison), not as string-evaled expressions.
+
+---
+
+### IR design decisions
+
+**Why a recursive condition tree (`all_of` / `any_of` / comparison) instead of a flat list?**
+- Flat lists can only express AND of comparisons. A tree supports compound strategies like `(RSI<30 AND SMA50>SMA200) OR (close < previous_low)` without schema changes.
+- The recursion depth is bounded by the schema (`minItems: 1` prevents infinite nesting in practice) and the interpreter evaluates it non-recursively enough to be auditable.
+
+**Why are indicator IDs user-defined strings (not enumerated in the schema)?**
+- The schema cannot know what indicator IDs the LLM will generate (`"rsi14"`, `"rsi_signal"`, etc.). The schema enforces the *shape* (must match `^[a-zA-Z][a-zA-Z0-9_]*$`) and the interpreter enforces *resolution* (every string operand must match a known ID at runtime).
+
+**Why does `compute_ir_warmup` use `period + 1` for RSI but `period` for SMA/EMA?**
+- `wilder_rsi(period=p)` produces its first non-NaN value at bar `p` (it seeds with a SMA of the first `p` changes, so it needs `p+1` bars). After the no-lookahead shift, the first actionable signal is at bar `p+1`. Warmup = `p+1`.
+- `rolling(p).mean()` produces its first non-NaN at bar `p-1`. After shift, first actionable at bar `p`. Warmup = `p`. This matches the Phase 1 convention exactly for RSI(14) → warmup = 15.
+
+**Why is `risk` optional and nullable (not required)?**
+- v1 has no stop-loss/take-profit interpreter support. Making `risk` required would force every IR to carry a key the interpreter ignores; making it optional/nullable is honest about its v1 status.
+
+**Regression gate (`test_ir_regression_matches_hardcoded_rsi_strategy`)**
+Uses the same deterministic synthetic oscillating series as `test_backtest.py` (no network). The IR path (`run_ir_backtest`) must produce `total_return`, `num_trades`, `start`, `end`, and `max_drawdown` identical (to `rel=1e-9`) to the hardcoded `run_rsi_backtest` path on the same data. If these diverge, the IR/interpreter has a bug. The test is the contract that Phase 3 must not break.
+
+---
+
 ## 2026-06-19 — Phase 1 addendum: buy-and-hold benchmark
 
 Added a reusable `compute_buy_and_hold_metrics(close, warmup, fees, slippage, init_cash) -> BacktestResult` to `app/engine/backtest.py`. It trims the same `warmup` bars as the strategy so the comparison window is identical, applies the same vectorbt cost model (entry slippage on the single buy, no exit since the position is never closed), and returns `BacktestResult` with `win_rate=nan` / `num_trades=0` (trade stats are not meaningful for a single held position).
