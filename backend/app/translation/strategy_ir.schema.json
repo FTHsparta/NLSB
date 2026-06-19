@@ -1,0 +1,193 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "strategy_ir.schema.json",
+  "title": "Strategy IR v1",
+  "description": "Intermediate representation for a backtestable trading strategy. This is the contract between the LLM translation layer and the safe interpreter — the interpreter must reject anything that passes schema validation but isn't semantically valid (e.g. an operand string that names neither a known indicator nor a price field).",
+  "type": "object",
+  "required": ["asset", "indicators", "entry", "exit", "position"],
+  "additionalProperties": false,
+  "properties": {
+    "asset": {
+      "type": "object",
+      "required": ["ticker", "asset_class"],
+      "additionalProperties": false,
+      "properties": {
+        "ticker": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Exchange ticker symbol, e.g. 'SPY'."
+        },
+        "asset_class": {
+          "type": "string",
+          "enum": ["equity", "etf", "crypto", "futures"],
+          "description": "Asset class — drives which data source and cost model to use."
+        }
+      }
+    },
+    "indicators": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/indicator"},
+      "description": "Ordered list of named indicator series. Each id must be unique; ids are referenced by operands in entry/exit conditions."
+    },
+    "entry": {
+      "$ref": "#/$defs/condition",
+      "description": "Boolean expression that, when true at bar t, triggers a buy at bar t+1 (no-lookahead convention)."
+    },
+    "exit": {
+      "$ref": "#/$defs/condition",
+      "description": "Boolean expression that, when true at bar t, triggers a sell at bar t+1."
+    },
+    "position": {
+      "type": "object",
+      "required": ["direction", "size"],
+      "additionalProperties": false,
+      "properties": {
+        "direction": {
+          "type": "string",
+          "enum": ["long"],
+          "description": "v1: long-only."
+        },
+        "size": {
+          "type": "string",
+          "enum": ["full"],
+          "description": "v1: full-capital allocation per trade."
+        }
+      }
+    },
+    "risk": {
+      "oneOf": [
+        {"type": "null"},
+        {
+          "type": "object",
+          "required": ["stop_loss_pct", "take_profit_pct"],
+          "additionalProperties": false,
+          "properties": {
+            "stop_loss_pct": {
+              "oneOf": [
+                {"type": "null"},
+                {
+                  "type": "number",
+                  "exclusiveMinimum": 0,
+                  "maximum": 1,
+                  "description": "Stop-loss as a fraction of entry price (0.05 = 5%). Null = no stop-loss."
+                }
+              ]
+            },
+            "take_profit_pct": {
+              "oneOf": [
+                {"type": "null"},
+                {
+                  "type": "number",
+                  "exclusiveMinimum": 0,
+                  "description": "Take-profit as a fraction of entry price (0.10 = 10%). Null = no take-profit."
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "description": "Risk management parameters. Null or absent = no stops."
+    }
+  },
+  "$defs": {
+    "price_field": {
+      "type": "string",
+      "enum": ["close", "open", "high", "low"],
+      "description": "A raw OHLC price field usable as an indicator source or condition operand."
+    },
+    "indicator_type": {
+      "type": "string",
+      "enum": ["RSI", "SMA", "EMA"],
+      "description": "Whitelisted indicator types. RSI uses Wilder's smoothing (RMA). SMA is a simple rolling mean. EMA uses alpha=2/(period+1)."
+    },
+    "indicator": {
+      "type": "object",
+      "required": ["id", "type", "params", "source"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z][a-zA-Z0-9_]*$",
+          "description": "Unique identifier referenced in condition operands, e.g. 'rsi14' or 'sma200'."
+        },
+        "type": {"$ref": "#/$defs/indicator_type"},
+        "params": {
+          "type": "object",
+          "required": ["period"],
+          "additionalProperties": false,
+          "properties": {
+            "period": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Lookback window in bars."
+            }
+          }
+        },
+        "source": {
+          "$ref": "#/$defs/price_field",
+          "description": "The price series this indicator is computed from."
+        }
+      }
+    },
+    "operand": {
+      "oneOf": [
+        {
+          "type": "number",
+          "description": "Numeric constant, e.g. 30 or 0.5."
+        },
+        {
+          "type": "string",
+          "minLength": 1,
+          "description": "Indicator id (e.g. 'rsi14') or price field (e.g. 'close'). Resolved by the interpreter at runtime — the schema cannot enumerate user-defined indicator ids."
+        }
+      ]
+    },
+    "comparison": {
+      "type": "object",
+      "required": ["left", "op", "right"],
+      "additionalProperties": false,
+      "description": "A single boolean comparison between two operands.",
+      "properties": {
+        "left": {"$ref": "#/$defs/operand"},
+        "op": {
+          "type": "string",
+          "enum": ["<", ">", "<=", ">=", "crosses_above", "crosses_below"],
+          "description": "Comparison operator. crosses_above/below check for the transition on the current bar vs. the previous bar."
+        },
+        "right": {"$ref": "#/$defs/operand"}
+      }
+    },
+    "condition": {
+      "description": "A boolean expression: either a logical combinator (all_of / any_of) over sub-conditions, or a leaf comparison.",
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["all_of"],
+          "additionalProperties": false,
+          "properties": {
+            "all_of": {
+              "type": "array",
+              "minItems": 1,
+              "items": {"$ref": "#/$defs/condition"},
+              "description": "Logical AND: true when every sub-condition is true."
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["any_of"],
+          "additionalProperties": false,
+          "properties": {
+            "any_of": {
+              "type": "array",
+              "minItems": 1,
+              "items": {"$ref": "#/$defs/condition"},
+              "description": "Logical OR: true when at least one sub-condition is true."
+            }
+          }
+        },
+        {"$ref": "#/$defs/comparison"}
+      ]
+    }
+  }
+}

@@ -19,6 +19,9 @@ scipy==1.17.1
 yfinance==1.4.1
 ccxt==4.5.58
 
+# Strategy IR validation
+jsonschema==4.26.0
+
 # Testing
 pytest==9.1.0
 httpx==0.28.1

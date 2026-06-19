@@ -3,6 +3,11 @@
 Correctness requirement: RSI must use **Wilder's smoothing**, matching the
 convention used by TradingView and most retail platforms — NOT a simple
 moving average of gains/losses.
+
+SMA: standard rolling window mean (rolling(period).mean()).
+EMA: exponential moving average with alpha = 2/(period+1), no SMA seed
+     (pandas ewm default with adjust=False). First bar is the raw price;
+     the series converges within ~3*period bars.
 """
 
 import numpy as np
@@ -55,3 +60,26 @@ def wilder_rsi(close: pd.Series, period: int = 14) -> pd.Series:
     rsi = np.where((avg_gain > 0) & (avg_loss == 0), 100.0, rsi)
 
     return pd.Series(rsi, index=close.index)
+
+
+def sma(close: pd.Series, period: int) -> pd.Series:
+    """Simple moving average (rolling window mean).
+
+    Returns NaN for the first ``period - 1`` bars; first defined value is at
+    index ``period - 1``.
+    """
+    if period < 1:
+        raise ValueError("period must be >= 1")
+    return close.rolling(window=period).mean()
+
+
+def ema(close: pd.Series, period: int) -> pd.Series:
+    """Exponential moving average with alpha = 2/(period+1).
+
+    Uses pandas ewm(span=period, adjust=False) — no SMA seed, first value
+    equals the first bar's price. Converges to the "true" EMA within ~3*period
+    bars.
+    """
+    if period < 1:
+        raise ValueError("period must be >= 1")
+    return close.ewm(span=period, adjust=False).mean()
