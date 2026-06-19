@@ -1,4 +1,4 @@
-"""Phase 1 backtest runner: hard-coded RSI strategy via vectorbt.
+"""Phase 1 backtest runner: hard-coded RSI strategy and B&H benchmark via vectorbt.
 
 buy when RSI(rsi_period) < rsi_lower; sell when RSI(rsi_period) > rsi_upper.
 """
@@ -92,6 +92,59 @@ def run_rsi_backtest(
         max_drawdown=float(pf.max_drawdown()),
         win_rate=float(pf.trades.win_rate()) if num_trades > 0 else float("nan"),
         num_trades=num_trades,
+        start=str(eff_close.index[0].date()),
+        end=str(eff_close.index[-1].date()),
+    )
+
+
+def compute_buy_and_hold_metrics(
+    close: pd.Series,
+    warmup: int,
+    fees: float = 0.0,
+    slippage: float = 0.0,
+    init_cash: float = 10_000,
+) -> BacktestResult:
+    """Buy-and-hold benchmark over the same effective window as the strategy.
+
+    Buys on the first bar after ``warmup`` bars are dropped and holds to the
+    end.  Applies the same cost model as the strategy so comparisons are
+    apples-to-apples; win_rate and num_trades are not meaningful for a single
+    held position and are set to nan/0 respectively.
+    """
+    eff_close = close.iloc[warmup:]
+
+    entries = pd.Series(False, index=eff_close.index)
+    entries.iloc[0] = True
+    exits = pd.Series(False, index=eff_close.index)
+
+    pf = vbt.Portfolio.from_signals(
+        eff_close,
+        entries,
+        exits,
+        fees=fees,
+        slippage=slippage,
+        init_cash=init_cash,
+    )
+
+    num_bars = len(eff_close)
+    total_return = float(pf.total_return())
+    annualized_return = (1 + total_return) ** (TRADING_DAYS_PER_YEAR / num_bars) - 1
+
+    daily_returns = pf.returns()
+    returns_std = daily_returns.std()
+    sharpe_ratio = (
+        float(daily_returns.mean() / returns_std * np.sqrt(TRADING_DAYS_PER_YEAR))
+        if returns_std > 0
+        else float("nan")
+    )
+
+    return BacktestResult(
+        total_return=total_return,
+        annualized_return=float(annualized_return),
+        sharpe_ratio=sharpe_ratio,
+        max_drawdown=float(pf.max_drawdown()),
+        win_rate=float("nan"),
+        num_trades=0,
         start=str(eff_close.index[0].date()),
         end=str(eff_close.index[-1].date()),
     )

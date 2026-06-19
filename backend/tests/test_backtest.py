@@ -1,7 +1,9 @@
+import math
+
 import numpy as np
 import pandas as pd
 
-from app.engine.backtest import run_rsi_backtest
+from app.engine.backtest import compute_buy_and_hold_metrics, run_rsi_backtest
 
 
 def _oscillating_close(n: int = 200) -> pd.Series:
@@ -52,3 +54,42 @@ def test_flat_series_produces_no_trades_and_nan_win_rate():
     assert result.num_trades == 0
     assert result.total_return == 0.0
     assert result.win_rate != result.win_rate  # NaN
+
+
+def _trending_close(n: int = 200) -> pd.Series:
+    """Steadily rising price series; RSI stays near 100 so the strategy never enters."""
+    close = 100.0 + np.arange(n) * 0.5
+    idx = pd.date_range("2015-01-01", periods=n, freq="D")
+    return pd.Series(close, index=idx, dtype=float)
+
+
+def test_buy_and_hold_window_matches_strategy():
+    close = _oscillating_close()
+    rsi_period = 14
+    warmup = rsi_period + 1
+
+    strategy = run_rsi_backtest(close, rsi_period=rsi_period)
+    bah = compute_buy_and_hold_metrics(close, warmup=warmup)
+
+    assert bah.start == strategy.start
+    assert bah.end == strategy.end
+
+
+def test_buy_and_hold_trade_stats_are_not_applicable():
+    close = _oscillating_close()
+    bah = compute_buy_and_hold_metrics(close, warmup=15)
+
+    assert bah.num_trades == 0
+    assert math.isnan(bah.win_rate)
+
+
+def test_strategy_lags_buy_and_hold_on_trending_series():
+    # In a steady uptrend RSI saturates near 100; the strategy never enters
+    # (RSI never crosses 30), so its return ≈ 0 while B&H captures the full gain.
+    close = _trending_close()
+    warmup = 15  # RSI(14) + 1
+
+    strategy = run_rsi_backtest(close, fees=0.0, slippage=0.0)
+    bah = compute_buy_and_hold_metrics(close, warmup=warmup, fees=0.0, slippage=0.0)
+
+    assert strategy.annualized_return < bah.annualized_return

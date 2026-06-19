@@ -1,5 +1,16 @@
 # Build Log
 
+## 2026-06-19 — Phase 1 addendum: buy-and-hold benchmark
+
+Added a reusable `compute_buy_and_hold_metrics(close, warmup, fees, slippage, init_cash) -> BacktestResult` to `app/engine/backtest.py`. It trims the same `warmup` bars as the strategy so the comparison window is identical, applies the same vectorbt cost model (entry slippage on the single buy, no exit since the position is never closed), and returns `BacktestResult` with `win_rate=nan` / `num_trades=0` (trade stats are not meaningful for a single held position).
+
+`phase1_slice.py` now prints three blocks — strategy (with retail costs), strategy (idealized), buy-and-hold — followed by a one-line verdict of annualized excess return and whether the strategy beat or lagged B&H.
+
+**Three new tests (22 total, all green):**
+- `test_buy_and_hold_window_matches_strategy` — B&H `start`/`end` matches strategy's effective window on the same close series.
+- `test_buy_and_hold_trade_stats_are_not_applicable` — confirms `num_trades == 0` and `win_rate` is NaN.
+- `test_strategy_lags_buy_and_hold_on_trending_series` — uses a steadily rising synthetic series where RSI never crosses 30 (strategy never enters, return ≈ 0%) to assert strategy annualized return < B&H annualized return.
+
 ## 2026-06-14 — Phase 0/1 kickoff: scaffold, dependency pins, security boundary
 
 **Repo scaffolded from scratch.** No prior `README.md`/`LOG.md`/`docs/` existed,
