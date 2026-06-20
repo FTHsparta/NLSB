@@ -45,7 +45,15 @@ Operand resolution is a dict lookup: a string operand is looked up in `indicator
 - v1 has no stop-loss/take-profit interpreter support. Making `risk` required would force every IR to carry a key the interpreter ignores; making it optional/nullable is honest about its v1 status.
 
 **Regression gate (`test_ir_regression_matches_hardcoded_rsi_strategy`)**
-Uses the same deterministic synthetic oscillating series as `test_backtest.py` (no network). The IR path (`run_ir_backtest`) must produce `total_return`, `num_trades`, `start`, `end`, and `max_drawdown` identical (to `rel=1e-9`) to the hardcoded `run_rsi_backtest` path on the same data. If these diverge, the IR/interpreter has a bug. The test is the contract that Phase 3 must not break.
+Uses the same deterministic synthetic oscillating series as `test_backtest.py` (no network). The IR path (`run_ir_backtest`) must produce values identical (to `rel=1e-9`) to the hardcoded `run_rsi_backtest` path on the same data across **all six `BacktestResult` fields**: `total_return`, `num_trades`, `start`, `end`, `max_drawdown`, `sharpe_ratio`, and `win_rate`. A `_assert_approx_or_nan()` helper handles the NaN case (win_rate is NaN when num_trades==0) without pytest.approx false-failing.
+
+**Execution-price alignment test (`test_ir_regression_with_distinct_open_close`)**
+A second regression test repeats the same six-metric gate on an OHLC frame where Open is 0.5% above Close (High=Open×1.001, Low=Close×0.999; OHLC ordering holds). When Open==Close any bug that accidentally uses Open instead of Close for RSI computation or order fill is invisible by construction; with a spread, such a bug produces different RSI values → different signals → assertion failure. Both paths must agree because both use Close exclusively.
+
+**Compound subset test non-vacuity**
+The flat oscillating series kept SMA50 ≈ SMA200 (flat long-run mean), so the AND condition (RSI<30 AND SMA50>SMA200) in `_COMPOUND_IR` never fired and the subset check trivially passed on an empty set. The test now uses `_uptrend_then_crash_close()` (280-bar gentle uptrend + 70-bar −2.5/bar crash): SMA50 >> SMA200 through the early crash while RSI dives to ≈0, guaranteeing compound entries fire. `assert compound_entries.sum() > 0` is added as an explicit non-vacuity guard.
+
+**Fix 5 (SPY snapshot) — skipped**: reproducing the live Phase 1 headline numbers (265.99% total return, 16 trades, 0.67 Sharpe) without a network call would require bundling ≈4 000 rows of SPY OHLCV into the repo and refreshing them as more bars accumulate. Deferred.
 
 ---
 
