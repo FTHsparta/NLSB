@@ -13,6 +13,8 @@ Test groups
    strict subset of RSI-alone signals (AND is stricter than OR/single condition).
 """
 
+import math
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -57,6 +59,51 @@ def _price_data(close: pd.Series) -> pd.DataFrame:
     return pd.DataFrame(
         {"Open": close, "High": close, "Low": close, "Close": close}
     )
+
+
+def _price_data_with_spread(close: pd.Series) -> pd.DataFrame:
+    """OHLC frame where Open is 0.5% above Close (positive prices assumed).
+
+    OHLC ordering holds: Low (=Close*0.999) <= Close <= Open (=Close*1.005) <= High (=Open*1.001).
+    Designed to expose bugs where the two code paths disagree on which price
+    column is used for indicator computation or order execution — such a bug
+    would produce different RSI values (or different fill prices) and cause the
+    regression gate to fail even though the ordinary all-equal fixture would not.
+    """
+    open_ = close * 1.005
+    high = open_ * 1.001    # > open_ > close  (for positive prices)
+    low = close * 0.999     # < close < open_
+    return pd.DataFrame({"Open": open_, "High": high, "Low": low, "Close": close})
+
+
+def _uptrend_then_crash_close(n_trend: int = 280, n_crash: int = 70) -> pd.Series:
+    """Long uptrend followed by a sharp crash.
+
+    Guarantees that during the crash:
+    - RSI(14) << 30 (continuous -2.5/bar decline drives avg_loss far above avg_gain).
+    - SMA50 >> SMA200 (200-bar uptrend seed keeps the long MA well below the 50-bar MA).
+
+    Used by the compound-strategy subset test to ensure compound entry signals
+    actually fire (non-vacuous assertion).
+    """
+    uptrend = 50.0 + np.arange(n_trend) * 0.4          # 50 → ~162 over 280 bars
+    crash = uptrend[-1] - 2.5 * np.arange(1, n_crash + 1)  # sharp -2.5/bar
+    prices = np.concatenate([uptrend, crash])
+    idx = pd.date_range("2015-01-01", periods=len(prices), freq="D")
+    return pd.Series(prices, index=idx, dtype=float)
+
+
+def _assert_approx_or_nan(
+    actual: float, expected: float, *, rel: float = 1e-9, label: str = ""
+) -> None:
+    """Assert ``actual == pytest.approx(expected, rel=rel)``, or both NaN."""
+    prefix = f"{label}: " if label else ""
+    if math.isnan(expected):
+        assert math.isnan(actual), f"{prefix}expected NaN, got {actual}"
+    else:
+        assert actual == pytest.approx(expected, rel=rel), (
+            f"{prefix}{actual!r} != approx({expected!r})"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -208,12 +255,45 @@ def test_ir_regression_matches_hardcoded_rsi_strategy():
     assert ir_result.start == hardcoded.start
     assert ir_result.end == hardcoded.end
     assert ir_result.max_drawdown == pytest.approx(hardcoded.max_drawdown, rel=1e-9)
+    # Sharpe is the metric most sensitive to annualisation/cash-day handling differences.
+    _assert_approx_or_nan(ir_result.sharpe_ratio, hardcoded.sharpe_ratio, label="sharpe_ratio")
+    _assert_approx_or_nan(ir_result.win_rate, hardcoded.win_rate, label="win_rate")
 
 
 def test_ir_warmup_matches_hardcoded_phase1_convention():
     """compute_ir_warmup for RSI(14) must equal phase1_slice.py's warmup = period + 1."""
     warmup = compute_ir_warmup(RSI14_SPY_IR)
     assert warmup == 14 + 1  # matches run_rsi_backtest(rsi_period=14): warmup = rsi_period + 1
+
+
+def test_ir_regression_with_distinct_open_close():
+    """Regression gate repeated on an OHLC frame where Open != Close.
+
+    When Open == Close (the degenerate fixture) any bug that accidentally uses
+    Open instead of Close for indicator computation or order fill is invisible —
+    the price values are identical.  This test uses a 0.5 % spread so that such
+    a bug would produce different RSI values and different signals, causing the
+    assertion to fail.
+
+    Both code paths must still agree on every metric because both use Close for
+    RSI input (via price_data["Close"] in the IR path and via the plain close
+    Series in the hardcoded path) and both fill orders at the next bar's Close.
+    """
+    close = _oscillating_close()
+    price_data = _price_data_with_spread(close)
+
+    hardcoded = run_rsi_backtest(close, rsi_period=14, fees=0.0, slippage=0.0)
+    ir_result = run_ir_backtest(RSI14_SPY_IR, price_data, fees=0.0, slippage=0.0)
+
+    assert ir_result.num_trades == hardcoded.num_trades, (
+        f"Trade count mismatch: IR={ir_result.num_trades}, hardcoded={hardcoded.num_trades}"
+    )
+    assert ir_result.total_return == pytest.approx(hardcoded.total_return, rel=1e-9)
+    assert ir_result.start == hardcoded.start
+    assert ir_result.end == hardcoded.end
+    assert ir_result.max_drawdown == pytest.approx(hardcoded.max_drawdown, rel=1e-9)
+    _assert_approx_or_nan(ir_result.sharpe_ratio, hardcoded.sharpe_ratio, label="sharpe_ratio")
+    _assert_approx_or_nan(ir_result.win_rate, hardcoded.win_rate, label="win_rate")
 
 
 # ---------------------------------------------------------------------------
@@ -263,18 +343,27 @@ def test_compound_warmup_is_max_of_all_indicators():
 def test_compound_entry_signals_are_subset_of_rsi_alone():
     """AND semantics: compound entry ⊆ RSI-alone entry (bitwise subset check).
 
-    Uses n=400 so that SMA(200) has enough bars to produce a defined series
-    and the oscillating series generates RSI<30 crossings within the
-    post-warmup window.
+    Uses _uptrend_then_crash_close() instead of the flat oscillating series.
+    The oscillating series keeps SMA50 ≈ SMA200 (flat long-run mean), so the
+    AND condition rarely or never fires — the subset check passes vacuously
+    because both sides are empty.  The uptrend+crash series guarantees that
+    SMA50 >> SMA200 through the early crash bars while RSI < 30, so compound
+    entries definitely fire and the non-vacuity assertion below can fail if
+    the AND logic is broken.
     """
-    close = _oscillating_close(n=400)
+    close = _uptrend_then_crash_close()
     price_data = _price_data(close)
 
     # Full-series signals (not trimmed) so we can compare bar-by-bar
     compound_entries, _ = interpret_ir(_COMPOUND_IR, price_data)
     rsi_entries, _ = interpret_ir(_RSI_ONLY_IR, price_data)
 
-    # Wherever compound fires, RSI-alone must also fire (AND ⊆ first operand)
+    # Non-vacuity: the AND condition must actually fire at least once.
+    assert compound_entries.sum() > 0, (
+        "No compound entry signals fired — test is vacuous. "
+        "Check that _uptrend_then_crash_close produces RSI<30 AND SMA50>SMA200."
+    )
+    # Wherever compound fires, RSI-alone must also fire (AND ⊆ first operand).
     spurious = compound_entries & ~rsi_entries
     assert spurious.sum() == 0, (
         f"Compound entry fired on {spurious.sum()} bars where RSI-alone did not — "
@@ -334,6 +423,6 @@ def test_crosses_above_fires_only_on_transition():
     entries, _ = interpret_ir(ir, price_data)
     # Raw crossing happens at bar 2 (close goes from 20 to 30, crossing 25).
     # After the no-lookahead shift: entry fires at bar 3.
-    assert entries.iloc[3] is np.bool_(True)
+    assert bool(entries.iloc[3])   # equality, not identity — np.bool_ identity is version-fragile
     # No other entry bars (only one crossing of 25 from below)
     assert entries.sum() == 1
