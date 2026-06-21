@@ -22,6 +22,9 @@ ccxt==4.5.58
 # Strategy IR validation
 jsonschema==4.26.0
 
+# LLM translation layer (Phase 3)
+anthropic==0.74.1
+
 # Testing
 pytest==9.1.0
 httpx==0.28.1

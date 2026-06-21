@@ -62,19 +62,29 @@ def _price_data(close: pd.Series) -> pd.DataFrame:
 
 
 def _price_data_with_spread(close: pd.Series) -> pd.DataFrame:
-    """OHLC frame where Open is 0.5% above Close (positive prices assumed).
+    """OHLC frame where Open != Close with a *per-bar varying* spread.
 
-    OHLC ordering holds: Low (=Close*0.999) <= Close <= Open (=Close*1.005) <= High (=Open*1.001).
-    Designed to expose bugs where the two code paths disagree on which price
-    column is used for indicator computation or order execution — such a bug
-    would produce different RSI values (or different fill prices) and cause the
-    regression gate to fail even though the ordinary all-equal fixture would not.
+    A constant multiplier (Open = Close * k) can't catch open-vs-close
+    execution bugs: RSI is scale-invariant to a constant, and a trade's
+    return (exit/entry) cancels the constant, so a path that wrongly fills
+    on Open passes anyway. A seeded per-bar spread makes Open[t]/Close[t]
+    differ across bars, so any accidental use of Open — for the RSI source
+    or for fills — diverges from the Close-only hardcoded path. Close is
+    left untouched so it matches the Series handed to run_rsi_backtest.
     """
-    open_ = close * 1.005
-    high = open_ * 1.001    # > open_ > close  (for positive prices)
-    low = close * 0.999     # < close < open_
-    return pd.DataFrame({"Open": open_, "High": high, "Low": low, "Close": close})
+    rng = np.random.default_rng(0)
+    spread = rng.uniform(0.002, 0.006, size=len(close))  # 0.2%–0.6%, varies per bar
+    c = close.to_numpy()
+    open_ = c * (1.0 + spread)
 
+    # Element-wise so OHLC ordering holds regardless of the spread's sign.
+    high = np.maximum(open_, c) * 1.001
+    low = np.minimum(open_, c) * 0.999
+
+    return pd.DataFrame(
+        {"Open": open_, "High": high, "Low": low, "Close": c},
+        index=close.index,
+    )
 
 def _uptrend_then_crash_close(n_trend: int = 280, n_crash: int = 70) -> pd.Series:
     """Long uptrend followed by a sharp crash.
@@ -266,18 +276,14 @@ def test_ir_warmup_matches_hardcoded_phase1_convention():
     assert warmup == 14 + 1  # matches run_rsi_backtest(rsi_period=14): warmup = rsi_period + 1
 
 
-def test_ir_regression_with_distinct_open_close():
-    """Regression gate repeated on an OHLC frame where Open != Close.
+def test_ir_regression_with_varying_spread_open_close():
+    """Execution-price alignment under a NON-constant spread.
 
-    When Open == Close (the degenerate fixture) any bug that accidentally uses
-    Open instead of Close for indicator computation or order fill is invisible —
-    the price values are identical.  This test uses a 0.5 % spread so that such
-    a bug would produce different RSI values and different signals, causing the
-    assertion to fail.
-
-    Both code paths must still agree on every metric because both use Close for
-    RSI input (via price_data["Close"] in the IR path and via the plain close
-    Series in the hardcoded path) and both fill orders at the next bar's Close.
+    The old constant-multiplier fixture could pass even if the IR path used
+    Open instead of Close (RSI scale-invariance + return cancellation). A
+    per-bar varying spread removes that escape hatch: if the IR path touches
+    Open where it should use Close, the metrics diverge from the hardcoded
+    Close-only path.
     """
     close = _oscillating_close()
     price_data = _price_data_with_spread(close)
@@ -289,12 +295,11 @@ def test_ir_regression_with_distinct_open_close():
         f"Trade count mismatch: IR={ir_result.num_trades}, hardcoded={hardcoded.num_trades}"
     )
     assert ir_result.total_return == pytest.approx(hardcoded.total_return, rel=1e-9)
+    assert ir_result.max_drawdown == pytest.approx(hardcoded.max_drawdown, rel=1e-9)
     assert ir_result.start == hardcoded.start
     assert ir_result.end == hardcoded.end
-    assert ir_result.max_drawdown == pytest.approx(hardcoded.max_drawdown, rel=1e-9)
-    _assert_approx_or_nan(ir_result.sharpe_ratio, hardcoded.sharpe_ratio, label="sharpe_ratio")
-    _assert_approx_or_nan(ir_result.win_rate, hardcoded.win_rate, label="win_rate")
-
+    _assert_approx_or_nan(ir_result.sharpe_ratio, hardcoded.sharpe_ratio, rel=1e-9)
+    _assert_approx_or_nan(ir_result.win_rate, hardcoded.win_rate, rel=1e-9)
 
 # ---------------------------------------------------------------------------
 # 4. Compound strategy — RSI<30 AND SMA50>SMA200
