@@ -1,5 +1,6 @@
 import json
 
+from app.translation import translator as translator_module
 from app.translation.translator import MAX_RETRIES, translate_to_ir
 
 
@@ -130,6 +131,28 @@ def test_retry_loop_recovers_from_schema_validation_failure():
     assert result.status == "ok"
     assert len(result.attempts) == 2
     assert result.attempts[0].error is not None
+
+
+def test_unsupported_sentinel_short_circuits_before_defaulting(monkeypatch):
+    """The sentinel has neither asset.ticker nor entry, so apply_defaults would
+    raise DefaultingError on it. translate_to_ir must detect the sentinel and
+    return before ever calling apply_defaults."""
+
+    def _apply_defaults_must_not_be_called(*args, **kwargs):
+        raise AssertionError("apply_defaults must not be called for an unsupported request")
+
+    monkeypatch.setattr(
+        translator_module, "apply_defaults", _apply_defaults_must_not_be_called
+    )
+
+    client = FakeLLMClient(
+        [_json({"unsupported": True, "reason": "Multi-asset strategies aren't supported in v1."})]
+    )
+    result = translate_to_ir("trade BTC based on SPY's price action", client)
+
+    assert result.status == "unsupported"
+    assert "v1" in result.message
+    assert len(result.attempts) == 1
 
 
 def test_retries_exhausted_returns_structured_error():

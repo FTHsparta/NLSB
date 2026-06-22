@@ -42,6 +42,17 @@ class DefaultingError(ValueError):
     """Raised when a required (non-defaultable) field is missing from the sparse IR."""
 
 
+# Severity levels for an Assumption. "note" = a routine fill-in (RSI period,
+# source price field, ...) that doesn't change what the strategy *means*.
+# "warning" = a fill-in that changes the shape of the result the user should
+# expect — right now, only the no-exit sentinel qualifies: it silently turns
+# a strategy into a buy-and-hold-from-first-entry, which is exactly the kind
+# of misattribution this project exists to surface, not bury in a routine
+# assumptions list.
+SEVERITY_NOTE = "note"
+SEVERITY_WARNING = "warning"
+
+
 @dataclass(frozen=True)
 class Assumption:
     """One field the defaulting layer filled in because the user didn't state it."""
@@ -49,6 +60,7 @@ class Assumption:
     field: str
     value: object
     reason: str
+    severity: str = SEVERITY_NOTE
 
 
 def apply_defaults(sparse_ir: dict) -> tuple[dict, list[Assumption]]:
@@ -155,7 +167,10 @@ def _default_exit(ir: dict, assumptions: list[Assumption]) -> None:
                 field="exit",
                 value=NO_EXIT_CONDITION,
                 reason="no exit condition stated; position is never explicitly "
-                "closed by a signal (held until the end of the test window)",
+                "closed by a signal — held from first entry to the end of the "
+                "test window, which approximates buy-and-hold from that date "
+                "rather than a round-trip strategy",
+                severity=SEVERITY_WARNING,
             )
         )
 

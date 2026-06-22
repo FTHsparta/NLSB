@@ -4,6 +4,8 @@ from app.translation.defaults import (
     DEFAULT_ASSET_CLASS,
     DEFAULT_RSI_PERIOD,
     NO_EXIT_CONDITION,
+    SEVERITY_NOTE,
+    SEVERITY_WARNING,
     Assumption,
     DefaultingError,
     apply_defaults,
@@ -57,6 +59,19 @@ def test_unstated_exit_defaults_to_never_fires_sentinel():
     full_ir, assumptions = apply_defaults(_sparse())
     assert full_ir["exit"] == NO_EXIT_CONDITION
     assert any(a.field == "exit" for a in assumptions)
+
+
+def test_unstated_exit_assumption_is_elevated_severity():
+    _, assumptions = apply_defaults(_sparse())
+    exit_assumption = next(a for a in assumptions if a.field == "exit")
+    assert exit_assumption.severity == SEVERITY_WARNING
+
+
+def test_routine_assumptions_stay_at_note_severity():
+    _, assumptions = apply_defaults(_sparse())
+    routine = [a for a in assumptions if a.field != "exit"]
+    assert routine  # sanity: there are routine assumptions in this fixture
+    assert all(a.severity == SEVERITY_NOTE for a in routine)
 
 
 def test_stated_exit_is_preserved():

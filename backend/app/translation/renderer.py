@@ -8,7 +8,7 @@ there is no second model call that could drift from the IR.
 
 from __future__ import annotations
 
-from app.translation.defaults import Assumption
+from app.translation.defaults import NO_EXIT_CONDITION, SEVERITY_WARNING, Assumption
 
 _OP_ENGLISH = {
     "<": "is below",
@@ -18,6 +18,16 @@ _OP_ENGLISH = {
     "crosses_above": "crosses above",
     "crosses_below": "crosses below",
 }
+
+# The always-false sentinel ("close < close") is a structurally-valid
+# condition, but rendering it literally ("sell when close price is below
+# close price") would hide the fact that the position is never closed.
+# Always special-case it to prose that says what actually happens.
+_NO_EXIT_PROSE = (
+    "No exit rule given — I held the position from your first entry signal "
+    "to the end of the data. These results approximate buy-and-hold from "
+    "that date, not a round-trip strategy."
+)
 
 
 def render_confirmation(full_ir: dict, assumptions: list[Assumption]) -> str:
@@ -40,7 +50,10 @@ def render_confirmation(full_ir: dict, assumptions: list[Assumption]) -> str:
         f"Here's what I'm about to backtest on {asset['ticker']} ({asset['asset_class']}):"
     )
     lines.append(f"- Entry: buy when {_condition_to_english(full_ir['entry'], indicators_by_id)}")
-    lines.append(f"- Exit: sell when {_condition_to_english(full_ir['exit'], indicators_by_id)}")
+    if full_ir["exit"] == NO_EXIT_CONDITION:
+        lines.append(f"- Exit: {_NO_EXIT_PROSE}")
+    else:
+        lines.append(f"- Exit: sell when {_condition_to_english(full_ir['exit'], indicators_by_id)}")
     lines.append(
         f"- Position: {position['direction']} only, {position['size']} capital allocation per trade"
     )
@@ -60,11 +73,22 @@ def render_confirmation(full_ir: dict, assumptions: list[Assumption]) -> str:
     else:
         lines.append("- (nothing beyond the basic strategy structure)")
 
+    warnings = [a for a in assumptions if a.severity == SEVERITY_WARNING]
+    notes = [a for a in assumptions if a.severity != SEVERITY_WARNING]
+
+    if warnings:
+        lines.append("")
+        lines.append("⚠ Heads up — these assumptions change what the result means:")
+        for a in warnings:
+            lines.append(f"- {a.reason}")
+
     lines.append("")
     lines.append("I assumed (you didn't specify these):")
-    if assumptions:
-        for a in assumptions:
+    if notes:
+        for a in notes:
             lines.append(f"- {a.field}: {_fmt_value(a.value)} — {a.reason}")
+    elif warnings:
+        lines.append("- (nothing routine — see the heads-up above)")
     else:
         lines.append("- (nothing — you specified every field)")
 

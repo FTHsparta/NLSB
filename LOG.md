@@ -1,5 +1,20 @@
 # Build Log
 
+## 2026-06-21 — Phase 3 fixes: honest no-exit disclosure + unsupported-before-defaulting ordering
+
+**Problem 1 (the important one):** the no-exit default (`defaults.NO_EXIT_CONDITION`, an always-false sentinel) was being treated as a routine fill-in on par with "RSI period = 14." It isn't: it silently turns the strategy into buy-and-hold-from-first-entry, not a round-trip strategy, and the project's whole premise is *not* burying that kind of thing in a routine assumptions list.
+
+**Fix:**
+- `Assumption` (`defaults.py`) now carries a `severity` field (`SEVERITY_NOTE` default, `SEVERITY_WARNING` for anything that changes what the result *means*, not just a parameter value). The no-exit assumption is the only `SEVERITY_WARNING` case today.
+- `renderer.py` special-cases the sentinel: the "Exit:" line never renders the literal condition (no "sell when close price is below close price"). It renders explicit prose instead: *"No exit rule given — I held the position from your first entry signal to the end of the data. These results approximate buy-and-hold from that date, not a round-trip strategy."*
+- The restatement now has three sections, in order: the plain-English strategy (with the prose above where the exit would be), "You specified," a **"⚠ Heads up — these assumptions change what the result means"** section listing only warning-severity items (ahead of, not mixed into, the routine list), then "I assumed (you didn't specify these)" for note-severity items only.
+- New test `test_translation_no_exit_backtest.py::test_no_exit_sentinel_produces_exactly_one_open_trade_held_to_final_bar` pins the actual engine behavior on an all-False exit array: confirmed via a manual vectorbt probe first (`pf.trades.count() == 1`, status `"Open"`) before writing the assertion, rather than guessing — `run_ir_backtest` produces exactly one trade, held open through the final bar, with `total_return`/`max_drawdown`/`annualized_return` all finite.
+- 8 new tests total (renderer: no-leak + section-ordering checks; defaults: severity tagging; translator: see Problem 2 below). Suite: 76 → 84, all green.
+
+**Problem 2:** `apply_defaults` raises `DefaultingError` when `asset.ticker`/`entry` are missing — fields the `{"unsupported": true, ...}` sentinel never has. The sentinel check in `translate_to_ir` already ran *before* the defaulting/validation block (confirmed by re-reading the code before changing anything), so this was already correct; added `test_unsupported_sentinel_short_circuits_before_defaulting` to pin it explicitly, monkeypatching `apply_defaults` to raise if called so a future refactor that reorders the checks fails loudly instead of silently losing the clean "not supported in v1" message.
+
+**Known ceiling, not a bug:** unsupported-detection relies on the model self-classifying scope (emitting the sentinel) rather than a pattern match on the user's text. The failure mode this doesn't catch is silent shoehorning — an intraday-ish or multi-asset-ish request the model maps onto a *plausible-looking* daily single-asset IR instead of recognizing it's out of scope. That's a model-reliability ceiling for v1, not something `translate_to_ir`'s retry loop can detect (a malformed IR triggers a retry; a well-formed but wrong-scope IR doesn't). Revisit if this shows up in practice.
+
 ## 2026-06-21 — Phase 3: NL → IR translation + confirmation layer
 
 **New files (all under `backend/app/translation/`):**
