@@ -1,5 +1,48 @@
 # Build Log
 
+## 2026-06-21 — Phase 4a: parameter sensitivity + Deflated Sharpe Ratio
+
+**New files (all under `backend/app/robustness/`):**
+- `params.py` — `extract_tunable_params(ir)`: walks a full IR and returns every indicator period and every numeric comparison threshold in the entry/exit condition tree as a `TunableParam` (id, path into the IR, stated value, kind, neighborhood grid). `get_in`/`set_in_copy` read/write a value at a path without mutating the original IR. Grid rule (ours, documented in the module docstring): periods get a 5-point grid at +/-{0,2,4} bars clipped to >=1 (period=14 -> [10,12,14,16,18]); thresholds get a 5-point grid at +/-{0,1,2}*step where step=max(1, round(10% of the value)) (threshold=30 -> step=3 -> [24,27,30,33,36]).
+- `sensitivity.py` — `run_sensitivity(ir, price_data)`: for every tunable param, sweeps its grid one-at-a-time (others held at their current IR value), running each grid point through `run_ir_backtest` (never reimplements backtest math). Scores peakiness as the grid's Sharpe range normalized by the Sharpe at the stated value, and labels each param "robust (broad plateau)" / "moderate" / "fragile (sharp peak)" against documented thresholds (<=0.25 / 0.25-0.75 / >=0.75). A grid point whose mutated IR makes the engine raise has the error captured on that point, not propagated — one bad neighborhood value can't crash the sweep.
+- `deflated_sharpe.py` — PSR and DSR per Bailey & Lopez de Prado. See verification below.
+- 34 new tests: `test_robustness_params.py` (11), `test_sensitivity.py` (8), `test_deflated_sharpe.py` (15). Suite: 84 -> 118, all green.
+
+---
+
+### DSR/PSR verification (the brief said: verify, don't trust the formula — done)
+
+Reference: Bailey & Lopez de Prado, **"The Sharp Razor: Deflating the Sharpe Ratio by asking for a Minimum Track Record Length"** (SSRN 2150879), pp. 16-17 — fetched and read directly (PDF), not recalled from memory. Worked example: a 2-year monthly track record with mean=0.036, stdev=0.079, skew=-2.448, kurtosis=10.164 (non-excess; Gaussian=3), per-period SR=0.458, n=24 monthly observations. The slides state **PSR(0)=0.913** for that fund, and **PSR(0)=0.982** for a fund with the *same* per-period Sharpe but Gaussian returns (skew=0, kurtosis=3).
+
+Hand-verified before writing any test: plugging these numbers into `PSR(SR*) = Phi[(SR_hat-SR*)*sqrt(n-1) / sqrt(1 - skew*SR_hat + ((kurt-1)/4)*SR_hat^2)]` reproduces 0.9134 and 0.9817 respectively — matching the published 0.913/0.982 to the slides' own rounding. Both are pinned in `test_deflated_sharpe.py::test_psr_matches_published_*`. The DSR/SR0 multiple-testing formula (no published worked numeric example found) was checked against an independently-written second computation using `scipy.stats.norm.ppf` directly in the test, rather than re-running the same code path.
+
+Also cross-checked the formula shape against a third-party open implementation by the same author (github.com/rubenbriones/Probabilistic-Sharpe-Ratio, linked from search) — confirms per-period (not annualized) SR and `fisher=False` (non-excess) kurtosis, consistent with the slides.
+
+**Two traps, guarded and tested:**
+1. **Per-period vs. annualized SR.** Using the same fund's annualized SR (1.585, also given on the slide) instead of the per-period SR (0.458) in the formula gives PSR(0) ~= 0.99 instead of 0.913 — a different, still-plausible-looking number. `test_trap_1_using_annualized_sharpe_corrupts_psr` pins both values and asserts they differ by >0.05. All public functions in `deflated_sharpe.py` take/expect per-period figures only.
+2. **Non-excess kurtosis.** `scipy.stats.kurtosis()` defaults to *excess* kurtosis (Gaussian=0); the formula needs *non-excess* (Gaussian=3). `sample_kurtosis()` always passes `fisher=False`. `test_sample_kurtosis_convention_is_non_excess_gaussian_equals_three` checks a 200k-sample Gaussian reads ~3, not ~0. `test_trap_2_excess_kurtosis_mislabeled_as_non_excess_corrupts_psr` shows feeding the excess value (7.164) where non-excess (10.164) is expected moves PSR(0) from 0.913 to ~0.920 — a smaller but real, silent corruption.
+
+**N sourcing:** `deflated_sharpe_ratio_from_trials(returns, trial_sharpes)` takes `n_trials = len(trial_sharpes)` directly from the list of per-period Sharpes actually evaluated — in practice, every grid point `sensitivity.run_sensitivity` ran (`sensitivity.py` converts each grid point's annualized Sharpe to per-period via `/sqrt(252)` for exactly this purpose). `test_sr0_threshold_increases_with_more_trials` confirms more trials -> higher deflation threshold holding variance fixed.
+
+---
+
+### Example: RSI(14) entry/exit thresholds on a synthetic oscillating series
+
+Ran `run_sensitivity` on `{ticker: SPY, RSI(14)<30 entry, RSI(14)>70 exit}` against the repo's existing 300-bar synthetic oscillating fixture (no network). All three tunables came back **"fragile (sharp peak)"**:
+
+```
+indicators.rsi14.period (stated=14): peakiness=1.21
+  period=10 -> Sharpe 1.51   period=14 -> Sharpe 5.26   period=18 -> Sharpe 7.88
+entry.right (stated=30): peakiness=0.82
+  threshold=24 -> Sharpe 8.08   threshold=30 -> Sharpe 5.26   threshold=36 -> Sharpe 3.77
+exit.right (stated=70): peakiness=1.33
+  threshold=63 -> Sharpe 3.84   threshold=70 -> Sharpe 5.26   threshold=84 -> Sharpe -0.15 (1 trade)
+```
+
+This is expected and somewhat artificial: the synthetic series is a clean, regular square wave, so RSI thresholds/periods land on genuinely different numbers of oscillation cycles — real fragility, just exaggerated by a toy fixture rather than evidence the *implementation* is biased toward "fragile." A flat-plateau case is also covered (`test_broad_plateau_strategy_is_labeled_robust`): an exit threshold set far outside the price range never fires for any grid value, giving identical results everywhere and `peakiness=0.0`.
+
+**Known wrinkle, not a bug:** `compute_ir_warmup` (Phase 2) takes the max lookback across *every declared indicator*, even ones not referenced in entry/exit. So sweeping a period changes warmup-trimming (and therefore the effective test window) even for an indicator the conditions never use — confirmed directly while writing `test_broad_plateau_strategy_is_labeled_robust`, which originally tried sweeping an unreferenced indicator's period expecting zero effect and failed for exactly this reason. The test now sweeps an exit threshold instead. Worth a closer look in 4b if walk-forward folds turn out sensitive to this.
+
 ## 2026-06-21 — Phase 3 fixes: honest no-exit disclosure + unsupported-before-defaulting ordering
 
 **Problem 1 (the important one):** the no-exit default (`defaults.NO_EXIT_CONDITION`, an always-false sentinel) was being treated as a routine fill-in on par with "RSI period = 14." It isn't: it silently turns the strategy into buy-and-hold-from-first-entry, not a round-trip strategy, and the project's whole premise is *not* burying that kind of thing in a routine assumptions list.
