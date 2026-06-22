@@ -97,6 +97,42 @@ def run_rsi_backtest(
     )
 
 
+def _build_ir_portfolio(
+    ir: dict,
+    price_data: pd.DataFrame,
+    fees: float,
+    slippage: float,
+    init_cash: float,
+):
+    """Shared core of run_ir_backtest: IR -> signals -> vectorbt portfolio.
+
+    Returns ``(pf, eff_close, eff_entries)``. Factored out so any caller
+    that needs more than the summary metrics (e.g. `app.robustness.regime`
+    needs per-bar returns and entry flags) gets them from this SAME
+    computation rather than a second vectorbt call -- there is exactly one
+    code path from IR to a simulated portfolio.
+    """
+    from app.translation.interpreter import compute_ir_warmup, interpret_ir
+
+    entries, exits = interpret_ir(ir, price_data)
+    warmup = compute_ir_warmup(ir)
+
+    close = price_data["Close"]
+    eff_close = close.iloc[warmup:]
+    eff_entries = entries.iloc[warmup:]
+    eff_exits = exits.iloc[warmup:]
+
+    pf = vbt.Portfolio.from_signals(
+        eff_close,
+        eff_entries,
+        eff_exits,
+        fees=fees,
+        slippage=slippage,
+        init_cash=init_cash,
+    )
+    return pf, eff_close, eff_entries
+
+
 def run_ir_backtest(
     ir: dict,
     price_data: pd.DataFrame,
@@ -117,24 +153,7 @@ def run_ir_backtest(
     price_data:
         DataFrame with columns Open, High, Low, Close (yfinance convention).
     """
-    from app.translation.interpreter import compute_ir_warmup, interpret_ir
-
-    entries, exits = interpret_ir(ir, price_data)
-    warmup = compute_ir_warmup(ir)
-
-    close = price_data["Close"]
-    eff_close = close.iloc[warmup:]
-    eff_entries = entries.iloc[warmup:]
-    eff_exits = exits.iloc[warmup:]
-
-    pf = vbt.Portfolio.from_signals(
-        eff_close,
-        eff_entries,
-        eff_exits,
-        fees=fees,
-        slippage=slippage,
-        init_cash=init_cash,
-    )
+    pf, eff_close, _eff_entries = _build_ir_portfolio(ir, price_data, fees, slippage, init_cash)
 
     num_trades = int(pf.trades.count())
     num_bars = len(eff_close)
@@ -159,6 +178,25 @@ def run_ir_backtest(
         start=str(eff_close.index[0].date()),
         end=str(eff_close.index[-1].date()),
     )
+
+
+def run_ir_backtest_returns(
+    ir: dict,
+    price_data: pd.DataFrame,
+    fees: float = 0.0,
+    slippage: float = 0.0,
+    init_cash: float = 10_000,
+) -> tuple[pd.Series, pd.Series]:
+    """Per-bar daily returns and entry flags over the effective window.
+
+    Same computation as `run_ir_backtest` (same `_build_ir_portfolio` call,
+    same cost model) -- this just exposes the per-bar series that function
+    discards after computing its summary stats, for callers (regime
+    analysis) that need to attribute performance to specific bars rather
+    than the whole window at once.
+    """
+    pf, _eff_close, eff_entries = _build_ir_portfolio(ir, price_data, fees, slippage, init_cash)
+    return pf.returns(), eff_entries
 
 
 def compute_buy_and_hold_metrics(

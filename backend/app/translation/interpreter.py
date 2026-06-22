@@ -80,10 +80,50 @@ def compute_ir_warmup(ir: dict) -> int:
     value; the no-lookahead shift adds one more bar on top.  The effective
     window starts after ``warmup`` bars, matching the convention in
     ``run_rsi_backtest``.
+
+    Only indicators actually REFERENCED by the entry/exit condition trees
+    count toward warmup. A declared-but-unused indicator (e.g. left over
+    from an edit, or a parameter-sensitivity sweep that mutates an
+    indicator's period without changing which indicators the conditions
+    use) must not silently shrink the effective test window — it has no
+    effect on the signals, so it must have no effect on warmup either.
     """
-    if not ir.get("indicators"):
+    referenced_ids = _referenced_indicator_ids(ir)
+    referenced_indicators = [
+        ind for ind in ir.get("indicators", []) if ind["id"] in referenced_ids
+    ]
+    if not referenced_indicators:
         return 1  # just the shift
-    return max(_indicator_lookback(ind) for ind in ir["indicators"])
+    return max(_indicator_lookback(ind) for ind in referenced_indicators)
+
+
+def _referenced_indicator_ids(ir: dict) -> set[str]:
+    """Every operand string appearing in the entry/exit condition trees."""
+    ids: set[str] = set()
+    for section in ("entry", "exit"):
+        cond = ir.get(section)
+        if cond:
+            ids |= _operand_strings_in_condition(cond)
+    return ids
+
+
+def _operand_strings_in_condition(cond: dict) -> set[str]:
+    if "all_of" in cond:
+        result: set[str] = set()
+        for c in cond["all_of"]:
+            result |= _operand_strings_in_condition(c)
+        return result
+    if "any_of" in cond:
+        result = set()
+        for c in cond["any_of"]:
+            result |= _operand_strings_in_condition(c)
+        return result
+    result = set()
+    for side in ("left", "right"):
+        val = cond.get(side)
+        if isinstance(val, str):
+            result.add(val)
+    return result
 
 
 def _indicator_lookback(ind: dict) -> int:

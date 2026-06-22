@@ -276,6 +276,39 @@ def test_ir_warmup_matches_hardcoded_phase1_convention():
     assert warmup == 14 + 1  # matches run_rsi_backtest(rsi_period=14): warmup = rsi_period + 1
 
 
+def test_ir_warmup_ignores_unreferenced_indicators():
+    """An indicator declared but never used by entry/exit must not affect
+    warmup (and therefore must not shrink the effective backtest window).
+
+    This is the confound flagged during Phase 4a sensitivity work: sweeping
+    an unused indicator's period changed compute_ir_warmup's output even
+    though the signals it produced were identical, because warmup used to
+    take the max lookback across every DECLARED indicator rather than only
+    the ones the conditions actually reference.
+    """
+    ir_with_unused_indicator = {
+        **RSI14_SPY_IR,
+        "indicators": [
+            *RSI14_SPY_IR["indicators"],
+            {"id": "sma200", "type": "SMA", "params": {"period": 200}, "source": "close"},
+        ],
+    }
+    baseline_warmup = compute_ir_warmup(RSI14_SPY_IR)
+    with_unused_warmup = compute_ir_warmup(ir_with_unused_indicator)
+    assert with_unused_warmup == baseline_warmup
+
+    close = _oscillating_close(n=260)
+    price_data = _price_data(close)
+    baseline_result = run_ir_backtest(RSI14_SPY_IR, price_data, fees=0.0, slippage=0.0)
+    with_unused_result = run_ir_backtest(
+        ir_with_unused_indicator, price_data, fees=0.0, slippage=0.0
+    )
+    assert with_unused_result.start == baseline_result.start
+    assert with_unused_result.end == baseline_result.end
+    assert with_unused_result.num_trades == baseline_result.num_trades
+    assert with_unused_result.total_return == pytest.approx(baseline_result.total_return, rel=1e-9)
+
+
 def test_ir_regression_with_varying_spread_open_close():
     """Execution-price alignment under a NON-constant spread.
 

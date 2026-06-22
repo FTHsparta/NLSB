@@ -1,5 +1,73 @@
 # Build Log
 
+## 2026-06-22 — Phase 4b: walk-forward validation + regime testing
+
+**Task 0 (done first, as instructed): fixed the warmup confound from 4a.** `compute_ir_warmup` (Phase 2, `app/translation/interpreter.py`) used to take the max lookback across *every declared indicator*, including ones the entry/exit conditions never reference. Sweeping an unused indicator's period therefore silently changed the effective backtest window — a confound that would have corrupted walk-forward's in-sample parameter search (an "optimal" period could win purely by shifting the window, not by improving the strategy). Fixed by adding `_referenced_indicator_ids(ir)` / `_operand_strings_in_condition(cond)`: warmup now only considers indicators whose `id` actually appears as an operand somewhere in `entry`/`exit`. New test `test_ir_warmup_ignores_unreferenced_indicators` (`test_ir.py`) pins this: an IR with an unused SMA(200) bolted on must produce the identical warmup, effective window, and backtest result as the IR without it. Full suite stayed green throughout (118 -> 119 after the new test, before 4b's own additions).
+
+**Small refactor to `app/engine/backtest.py`** to support regime attribution without a second execution path: extracted `_build_ir_portfolio()` (IR -> signals -> vectorbt portfolio — the shared core `run_ir_backtest` already had) and added `run_ir_backtest_returns()`, which calls the *same* helper and returns the per-bar returns/entry-flag series that `run_ir_backtest` was computing internally and then discarding. No new vectorbt call, no new math — just exposing what was already being computed. `regime.py` is the only caller.
+
+**New files (`backend/app/robustness/`):**
+
+- `walk_forward.py` — `run_walk_forward(ir, price_data, in_sample_bars=756, out_of_sample_bars=252, step_bars=252, ...)`. Per fold: builds the full cartesian product of `params.py`'s tunable grids (e.g. 5x5=25 candidates for 2 tunables), backtests every candidate on the IS slice via `run_ir_backtest`, picks the highest-Sharpe candidate (deterministic tie-break: closest to stated values, then smallest total magnitude, then canonical grid order — so reruns are reproducible), freezes it, and backtests that frozen IR on the immediately-following OOS slice — again via `run_ir_backtest`, on the OOS slice alone. Reports per-fold IS/OOS Sharpe, return, and trade counts, plus a `low_confidence` flag when IS trades fall below `min_trades_for_confidence` (default 10) — optimizing Sharpe on a handful of trades is itself a form of overfitting, so that's surfaced per fold rather than silently baked into "the chosen params." Aggregates IS/OOS Sharpe across folds and reports `degradation = aggregate_is - aggregate_oos`.
+- `regime.py` — `run_regime_analysis(ir, price_data)`. Two documented, independent regime axes: trend (`bull`/`bear` via price vs. its 200-day SMA) and volatility (`high_vol`/`low_vol` via 60-day trailing realized vol vs. the *sample median* of that rolling series) combined into up to 4 labels. Per-regime: share of time, compounded return, Sharpe, and entry count, all computed from `run_ir_backtest_returns`'s per-bar output (never a second simulation). Flags `concentrated_regime` when a single regime owns >=80% of the strategy's total *positive* per-bar returns (gains-only, so the share is always bounded in [0,1] regardless of how losses are distributed).
+
+**67 new tests:** `test_ir.py` +1 (warmup fix), `test_walk_forward.py` (10), `test_regime.py` (9). Suite: 118 -> 138, all green.
+
+---
+
+### Walk-forward correctness invariants (each pinned with a test)
+
+1. **No lookahead.** `test_fold_boundaries_are_strictly_sequential_and_non_overlapping` checks every OOS window starts strictly after its IS window ends. `test_chosen_params_do_not_depend_on_out_of_sample_data` runs the *same* IS slice with two wildly different OOS slices appended and asserts the chosen parameters for that fold are identical — proving the optimizer structurally cannot see OOS bars (it never receives them).
+2. **Warmup handled inside each window, no cross-boundary bleed.** Each fold calls `run_ir_backtest` independently on the IS slice and (separately) the frozen IR on the OOS slice — there is no shared state between the two calls. `test_oos_result_matches_independent_standalone_backtest_on_same_window` proves this directly: the OOS metrics walk-forward reports for a fold must exactly equal calling `run_ir_backtest` by hand on that same OOS slice in isolation.
+3. **Costs modeled in every fold.** `test_costs_are_passed_to_every_backtest_call` spies on every call walk-forward makes to `run_ir_backtest` (IS search *and* OOS test) and asserts the configured non-zero retail slippage was actually passed, not defaulted away.
+4. **Thin-evidence visibility.** `test_low_trade_count_fold_is_flagged_low_confidence` / `..._is_not_flagged...` confirm the flag tracks the documented `min_trades_for_confidence` threshold (default 10) on the *chosen* candidate's IS trade count.
+
+Tie-breaking and grid-coverage are also tested directly: `test_full_grid_is_evaluated_every_fold` asserts every one of the 25 IS candidates plus the 1 OOS call actually ran (26 calls/fold); `test_tie_breaking_prefers_stated_value_then_is_deterministic` forces every candidate to tie exactly and confirms the winner is the user's originally-stated configuration, reproducibly across repeated runs. `test_a_failing_candidate_does_not_crash_the_fold` confirms one candidate raising (e.g. a degenerate mutated IR) doesn't abort the search.
+
+Most of these use a stubbed `run_ir_backtest` (deterministic, pure-Python, no vectorbt) for speed and precise control over scores/trade-counts; the lookahead and warmup-boundary tests use the real engine on small synthetic windows specifically because those invariants are about genuine data sensitivity, not arithmetic.
+
+### Regime testing notes
+
+`_regime_labels` is tested directly against a two-segment synthetic series (a long clean uptrend, then a long clean downtrend) — both trend labels and the MA200 warmup-exclusion are checked explicitly. Per-regime attribution and the concentration flag are tested via a monkeypatched `run_ir_backtest_returns` so the per-bar returns feeding the attribution are exactly known (rather than depending on what a real RSI strategy happens to do on a given synthetic series) — `test_concentration_flag_triggers_when_one_regime_owns_almost_all_gains` locates one real combined regime's exact bar range via `_regime_labels` itself, puts all the crafted gains only there, and asserts that exact regime gets flagged.
+
+**Restated in code and here: regime boundaries use full-sample information** (the volatility split is the median of the *entire* trailing-vol series, computed with hindsight). This is honest, descriptive labeling — "did this strategy's results come from everywhere, or from one slice of history" — not a rule the strategy could have used in real time, and it must never be fed back into the IR.
+
+---
+
+### Example: RSI(14)<30/>70 on a 2000-bar synthetic series with an embedded trend-then-crash-then-recovery shift
+
+`run_walk_forward(ir, price_data, in_sample_bars=400, out_of_sample_bars=150, step_bars=150)` — 10 folds:
+
+```
+fold IS window               OOS window              chosen params                                                          IS Sharpe  IS trades  OOS Sharpe  OOS trades  low_conf
+0    2010-01-01..2011-02-04  2011-02-05..2011-07-04  period=12, entry=33, exit=63                                          1.49       4          nan         0           True
+1    2010-05-31..2011-07-04  2011-07-05..2011-12-01  period=12, entry=36, exit=63                                          1.70       5          0.48        2           True
+2    2010-10-28..2011-12-01  2011-12-02..2012-04-29  period=10, entry=33, exit=84                                          1.74       2          1.00        1           True
+3    2011-03-27..2012-04-29  2012-04-30..2012-09-26  period=12, entry=24, exit=70                                          1.71       2         -2.02        1           True
+4    2011-08-24..2012-09-26  2012-09-27..2013-02-23  period=14, entry=27, exit=56                                          0.77       3         -2.73        2           True
+5    2012-01-21..2013-02-23  2013-02-24..2013-07-23  period=10, entry=24, exit=56                                         -0.87       5         -4.42        1           True
+6    2012-06-19..2013-07-23  2013-07-24..2013-12-20  period=14, entry=24, exit=70                                         -2.80       2          nan         0           True
+7    2012-11-16..2013-12-20  2013-12-21..2014-05-19  period=16, entry=24, exit=70                                         -1.40       2          nan         0           True
+8    2013-04-15..2014-05-19  2014-05-20..2014-10-16  period=14, entry=30, exit=84                                          0.34       1          nan         0           True
+9    2013-09-12..2014-10-16  2014-10-17..2015-03-15  period=10, entry=33, exit=84                                          2.07       2          2.09        1           True
+
+aggregate IS Sharpe: 0.474   aggregate OOS Sharpe: -0.932   degradation: 1.406
+```
+
+Every single fold is `low_confidence` (IS trade counts of 1-5, all below the default threshold of 10) — exactly the "thin evidence" case the brief called out: this strategy on this data never has enough in-sample trades for the IS Sharpe used to pick parameters to mean much, and the large positive degradation (IS averages positive, OOS averages negative) is consistent with that noise being chased rather than a real edge.
+
+`run_regime_analysis` on the same IR/data:
+
+```
+regime          share_time  total_return  sharpe  entries  bars
+bear_high_vol   0.218       -0.175        -1.55   78       392
+bear_low_vol    0.142       -0.214        -3.85   75       255
+bull_high_vol   0.298        0.122         2.28    0       537
+bull_low_vol    0.343        0.146         1.43    5       617
+```
+
+No concentration flag here — gains are split across both bull sub-regimes rather than owned by one, despite the strategy clearly performing worse in both bear regimes.
+
 ## 2026-06-21 — Phase 4a: parameter sensitivity + Deflated Sharpe Ratio
 
 **New files (all under `backend/app/robustness/`):**
