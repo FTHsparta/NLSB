@@ -152,6 +152,66 @@ def test_no_concentration_flag_when_gains_are_spread_across_regimes(monkeypatch)
     assert report.concentration_share is None
 
 
+# ---------------------------------------------------------------------------
+# Marginal concentration (per-axis) -- catches bull/bear- or vol-dependence
+# that the 2x2 cell view can mask by splitting gains across two cells that
+# agree on one axis.
+# ---------------------------------------------------------------------------
+
+
+def test_bull_dependence_marginal_flag_trips_when_cell_flag_stays_silent(monkeypatch):
+    """The canonical '2020-21 bull run' shape: gains land in BOTH bull
+    cells (crash-recover high-vol + grind-up low-vol), losses in BOTH bear
+    cells. Neither single cell owns 80% of the gains, so the per-cell flag
+    must stay silent -- but the trend MARGINAL (bull vs bear, ignoring vol)
+    owns ~100% and must trip."""
+    close = _two_segment_series(400, 400)
+    trend_labels, vol_labels = regime_module._axis_labels(close)
+    labels = regime_module._combine_labels(trend_labels, vol_labels)
+
+    def _fake_returns(ir, price_data, **kwargs):
+        idx = price_data.index
+        bull_mask = (trend_labels == "bull").reindex(idx, fill_value=False)
+        bear_mask = (trend_labels == "bear").reindex(idx, fill_value=False)
+        returns = pd.Series(0.0, index=idx)
+        returns[bull_mask] = 0.01  # split across bull_high_vol AND bull_low_vol
+        returns[bear_mask] = -0.01  # split across bear_high_vol AND bear_low_vol
+        entries = pd.Series(False, index=idx)
+        return returns, entries
+
+    monkeypatch.setattr(regime_module, "run_ir_backtest_returns", _fake_returns)
+
+    price_data = _price_data(close)
+    report = run_regime_analysis(_simple_ir(), price_data)
+
+    # Per-cell flag stays silent: gains split roughly 50/50 across the two
+    # bull cells (whatever the exact vol-median split happens to be).
+    assert report.concentrated_regime is None
+    assert report.concentration_share is None
+
+    # Trend marginal flag trips for "bull".
+    trend_flags = [f for f in report.marginal_flags if f.axis == "trend"]
+    assert len(trend_flags) == 1
+    assert trend_flags[0].dominant_label == "bull"
+    assert trend_flags[0].share >= regime_module.MARGINAL_CONCENTRATION_SHARE_THRESHOLD
+    assert trend_flags[0].dependence_label == "bull-dependent"
+
+
+def test_no_marginal_flag_when_gains_are_spread_across_both_axis_sides(monkeypatch):
+    close = _two_segment_series(400, 400)
+
+    def _fake_returns(ir, price_data, **kwargs):
+        returns = pd.Series(0.005, index=price_data.index)  # uniform everywhere
+        entries = pd.Series(False, index=price_data.index)
+        return returns, entries
+
+    monkeypatch.setattr(regime_module, "run_ir_backtest_returns", _fake_returns)
+
+    price_data = _price_data(close)
+    report = run_regime_analysis(_simple_ir(), price_data)
+    assert report.marginal_flags == ()
+
+
 def test_num_entries_attributed_per_regime_matches_real_entry_flags(monkeypatch):
     close = _two_segment_series(300, 300)
 
