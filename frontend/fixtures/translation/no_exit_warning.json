@@ -1,0 +1,79 @@
+{
+  "status": "ok",
+  "ir": {
+    "asset": {
+      "ticker": "SPY",
+      "asset_class": "equity"
+    },
+    "indicators": [
+      {
+        "id": "rsi14",
+        "type": "RSI",
+        "params": {
+          "period": 14
+        },
+        "source": "close"
+      }
+    ],
+    "entry": {
+      "left": "rsi14",
+      "op": "<",
+      "right": 30
+    },
+    "exit": {
+      "left": "close",
+      "op": "<",
+      "right": "close"
+    },
+    "position": {
+      "direction": "long",
+      "size": "full"
+    },
+    "risk": null
+  },
+  "assumptions": [
+    {
+      "field": "asset.asset_class",
+      "value": "equity",
+      "reason": "asset class not stated; defaulted to equity",
+      "severity": "note"
+    },
+    {
+      "field": "indicators.rsi14.source",
+      "value": "close",
+      "reason": "source price field for rsi14 not stated; defaulted to close",
+      "severity": "note"
+    },
+    {
+      "field": "exit",
+      "value": {
+        "left": "close",
+        "op": "<",
+        "right": "close"
+      },
+      "reason": "no exit condition stated; position is never explicitly closed by a signal \u2014 held from first entry to the end of the test window, which approximates buy-and-hold from that date rather than a round-trip strategy",
+      "severity": "warning"
+    },
+    {
+      "field": "position.direction",
+      "value": "long",
+      "reason": "position direction not stated; defaulted to long (v1 is long-only)",
+      "severity": "note"
+    },
+    {
+      "field": "position.size",
+      "value": "full",
+      "reason": "position sizing not stated; defaulted to full capital per trade",
+      "severity": "note"
+    },
+    {
+      "field": "risk",
+      "value": null,
+      "reason": "no stop-loss/take-profit stated; defaulted to none",
+      "severity": "note"
+    }
+  ],
+  "restatement": "Here's what I'm about to backtest on SPY (equity):\n- Entry: buy when RSI(14) is below 30\n- Exit: No exit rule given \u2014 I held the position from your first entry signal to the end of the data. These results approximate buy-and-hold from that date, not a round-trip strategy.\n- Position: long only, full capital allocation per trade\n\nYou specified:\n- ticker: SPY\n- entry condition\n\n\u26a0 Heads up \u2014 these assumptions change what the result means:\n- no exit condition stated; position is never explicitly closed by a signal \u2014 held from first entry to the end of the test window, which approximates buy-and-hold from that date rather than a round-trip strategy\n\nI assumed (you didn't specify these):\n- asset.asset_class: equity \u2014 asset class not stated; defaulted to equity\n- indicators.rsi14.source: close \u2014 source price field for rsi14 not stated; defaulted to close\n- position.direction: long \u2014 position direction not stated; defaulted to long (v1 is long-only)\n- position.size: full \u2014 position sizing not stated; defaulted to full capital per trade\n- risk: None \u2014 no stop-loss/take-profit stated; defaulted to none",
+  "message": null,
+  "retries": 0
+}

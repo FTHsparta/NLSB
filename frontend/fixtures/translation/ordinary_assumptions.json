@@ -1,0 +1,75 @@
+{
+  "status": "ok",
+  "ir": {
+    "asset": {
+      "ticker": "SPY",
+      "asset_class": "equity"
+    },
+    "indicators": [
+      {
+        "id": "rsi14",
+        "type": "RSI",
+        "source": "close",
+        "params": {
+          "period": 14
+        }
+      }
+    ],
+    "entry": {
+      "left": "rsi14",
+      "op": "<",
+      "right": 30
+    },
+    "exit": {
+      "left": "rsi14",
+      "op": ">",
+      "right": 70
+    },
+    "position": {
+      "direction": "long",
+      "size": "full"
+    },
+    "risk": null
+  },
+  "assumptions": [
+    {
+      "field": "asset.asset_class",
+      "value": "equity",
+      "reason": "asset class not stated; defaulted to equity",
+      "severity": "note"
+    },
+    {
+      "field": "indicators.rsi14.source",
+      "value": "close",
+      "reason": "source price field for rsi14 not stated; defaulted to close",
+      "severity": "note"
+    },
+    {
+      "field": "indicators.rsi14.params.period",
+      "value": 14,
+      "reason": "period for RSI indicator rsi14 not stated; defaulted to 14",
+      "severity": "note"
+    },
+    {
+      "field": "position.direction",
+      "value": "long",
+      "reason": "position direction not stated; defaulted to long (v1 is long-only)",
+      "severity": "note"
+    },
+    {
+      "field": "position.size",
+      "value": "full",
+      "reason": "position sizing not stated; defaulted to full capital per trade",
+      "severity": "note"
+    },
+    {
+      "field": "risk",
+      "value": null,
+      "reason": "no stop-loss/take-profit stated; defaulted to none",
+      "severity": "note"
+    }
+  ],
+  "restatement": "Here's what I'm about to backtest on SPY (equity):\n- Entry: buy when RSI(14) is below 30\n- Exit: sell when RSI(14) is above 70\n- Position: long only, full capital allocation per trade\n\nYou specified:\n- ticker: SPY\n- entry condition\n- exit condition\n\nI assumed (you didn't specify these):\n- asset.asset_class: equity \u2014 asset class not stated; defaulted to equity\n- indicators.rsi14.source: close \u2014 source price field for rsi14 not stated; defaulted to close\n- indicators.rsi14.params.period: 14 \u2014 period for RSI indicator rsi14 not stated; defaulted to 14\n- position.direction: long \u2014 position direction not stated; defaulted to long (v1 is long-only)\n- position.size: full \u2014 position sizing not stated; defaulted to full capital per trade\n- risk: None \u2014 no stop-loss/take-profit stated; defaulted to none",
+  "message": null,
+  "retries": 0
+}

@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 import pandas as pd
 
 from app.engine.backtest import BacktestResult, run_ir_backtest
+from app.robustness.robustness import run_robustness
 from app.translation.defaults import Assumption
 from app.translation.interpreter import validate_ir
 from app.translation.renderer import render_confirmation
@@ -92,3 +93,25 @@ def confirm(
     """Run the backtest for a user-confirmed IR. The only place this happens."""
     validate_ir(ir)
     return run_ir_backtest(ir, price_data, fees=fees, slippage=slippage)
+
+
+def confirm_robustness(
+    ir: dict,
+    price_data: pd.DataFrame,
+    assumptions: list[Assumption],
+    *,
+    fees: float = RETAIL_FEES,
+    slippage: float = RETAIL_SLIPPAGE,
+) -> dict:
+    """Run the full robustness suite for a user-confirmed IR (or the no-exit
+    short-circuit) and return the `RESULT_KEYS` dict. Like `confirm()`, this
+    is the only place a run happens -- `translate()`/`correct()` have no code
+    path that reaches it.
+
+    `assumptions` must be the list `apply_defaults` produced for this exact
+    IR (round-tripped from the prior translate/correct response) -- whether
+    this is a no-exit strategy is read off the SEVERITY_WARNING `exit`
+    assumption, not re-derived from the IR alone.
+    """
+    validate_ir(ir)
+    return run_robustness(ir, price_data, assumptions, fees=fees, slippage=slippage)
