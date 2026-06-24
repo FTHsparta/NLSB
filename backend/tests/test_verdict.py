@@ -181,6 +181,85 @@ def test_likely_overfit_from_dsr_alone():
     assert any("Deflated Sharpe" in r for r in result.reasons)
 
 
+# ---------------------------------------------------------------------------
+# Phase 4c calibration fixes
+# ---------------------------------------------------------------------------
+
+
+def test_calibration_invariant1_thin_folds_plus_failing_dsr_is_untestable_not_overfit():
+    """A DSR-fail must not manufacture a confident LIKELY_OVERFIT out of
+    higher moments estimated on a thin-trade return series -- same
+    underlying problem the WF axis already guards against."""
+    folds = [
+        _fold(0, is_sharpe=0.2, is_trades=3, oos_sharpe=0.1, low_confidence=True),
+        _fold(1, is_sharpe=0.1, is_trades=2, oos_sharpe=0.05, low_confidence=True),
+    ]
+    wf = _wf(folds, agg_is=0.15, agg_oos=0.075, degradation=0.075)  # no WF overfit signature
+
+    result = compute_verdict(walk_forward=wf, sensitivity=[], dsr=_dsr(0.3), regime=_empty_regime())
+
+    assert result.verdict == UNTESTABLE
+    assert result.verdict != LIKELY_OVERFIT
+    assert any("Deflated Sharpe" in r for r in result.reasons)
+
+
+def test_calibration_invariant2_confidence_bearing_folds_plus_failing_dsr_still_overfit():
+    """Guard against over-correcting: the untestable override only applies
+    on the untestable axis -- a failing DSR with trustworthy WF evidence
+    must still drive LIKELY_OVERFIT."""
+    folds = [
+        _fold(0, is_sharpe=0.5, is_trades=20, oos_sharpe=0.55, low_confidence=False),
+        _fold(1, is_sharpe=0.4, is_trades=18, oos_sharpe=0.45, low_confidence=False),
+    ]
+    wf = _wf(folds, agg_is=0.45, agg_oos=0.5, degradation=-0.05)  # no WF overfit signature
+
+    result = compute_verdict(walk_forward=wf, sensitivity=[], dsr=_dsr(0.3), regime=_empty_regime())
+
+    assert result.verdict == LIKELY_OVERFIT
+
+
+def test_calibration_invariant3_large_drop_landing_strongly_positive_is_not_overfit():
+    """IS 3.0 -> OOS 2.4: a 0.6-Sharpe haircut on a still-excellent OOS
+    number is not, on its own, the overfit tell."""
+    folds = [
+        _fold(0, is_sharpe=3.1, is_trades=30, oos_sharpe=2.5, low_confidence=False),
+        _fold(1, is_sharpe=2.9, is_trades=28, oos_sharpe=2.3, low_confidence=False),
+    ]
+    wf = _wf(folds, agg_is=3.0, agg_oos=2.4, degradation=0.6)
+
+    result = compute_verdict(walk_forward=wf, sensitivity=[], dsr=_dsr(0.97), regime=_empty_regime())
+
+    assert result.verdict != LIKELY_OVERFIT
+
+
+def test_calibration_invariant4_sign_flip_into_loss_is_still_overfit():
+    """IS 0.4 -> OOS -0.2: a sign flip into loss is still the tell, even
+    though the raw drop (0.6) is the same size as invariant 3's."""
+    folds = [
+        _fold(0, is_sharpe=0.45, is_trades=30, oos_sharpe=-0.25, low_confidence=False),
+        _fold(1, is_sharpe=0.35, is_trades=28, oos_sharpe=-0.15, low_confidence=False),
+    ]
+    wf = _wf(folds, agg_is=0.4, agg_oos=-0.2, degradation=0.6)
+
+    result = compute_verdict(walk_forward=wf, sensitivity=[], dsr=_dsr(0.97), regime=_empty_regime())
+
+    assert result.verdict == LIKELY_OVERFIT
+
+
+def test_large_drop_landing_strongly_positive_still_contributes_to_shaky():
+    """Not damning on its own (invariant 3), but still worth a caution."""
+    folds = [
+        _fold(0, is_sharpe=3.1, is_trades=30, oos_sharpe=2.5, low_confidence=False),
+        _fold(1, is_sharpe=2.9, is_trades=28, oos_sharpe=2.3, low_confidence=False),
+    ]
+    wf = _wf(folds, agg_is=3.0, agg_oos=2.4, degradation=0.6)
+
+    result = compute_verdict(walk_forward=wf, sensitivity=[], dsr=_dsr(0.97), regime=_empty_regime())
+
+    assert result.verdict == SHAKY
+    assert any("degradation" in r.lower() for r in result.reasons)
+
+
 def test_untestable_when_no_folds_completed_at_all():
     wf = WalkForwardResult(folds=(), aggregate_is_sharpe=float("nan"), aggregate_oos_sharpe=float("nan"), degradation=float("nan"))
 

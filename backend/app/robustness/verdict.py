@@ -25,6 +25,17 @@ this module checks whether the walk-forward evidence is confidence-bearing
 (see `LOW_CONFIDENCE_FOLD_SHARE_THRESHOLD`) and routes to UNTESTABLE instead
 if it isn't -- regardless of how dramatic the raw degradation number looks.
 
+The same guard applies to a DSR-fail when the WF axis is untestable: DSR's
+`n` is period-based (hundreds of daily bars), so it can look statistically
+"stable" even when the underlying strategy only made a handful of round-trip
+trades -- but DSR's skew/kurtosis inputs are computed on that same thin-trade
+return series, where higher moments are themselves unstable. A confident DSR
+verdict manufactured from garbage moments on sparse data is the exact kind of
+false confidence this project exists to expose, just arriving through a
+different check. A DSR-fail therefore only drives LIKELY_OVERFIT on its own
+when the walk-forward axis is confidence-bearing; on the untestable axis it
+becomes a caveat folded into the UNTESTABLE reasons instead.
+
 A separate, structurally distinct no-exit case (`is_no_exit_strategy` /
 `build_no_exit_result`) is NOT one of the four states above: a strategy with
 no exit rule is buy-and-hold from its first entry, one open trade, nothing
@@ -66,7 +77,22 @@ DSR_FAIL_THRESHOLD = 0.5
 # "confidence-bearing" degradation by itself, independent of a sign flip.
 # Heuristic, ours: 0.5 Sharpe is a large swing on the same annualization
 # convention this codebase uses everywhere else (TRADING_DAYS_PER_YEAR=252).
+#
+# NOT sufficient on its own, though: a 0.5-unit drop from IS 3.0 to OOS 2.4
+# is a haircut on a still-excellent number, not an overfit tell, while the
+# same-sized drop from IS 0.4 to OOS -0.2 is a sign flip into loss -- the
+# textbook signature. The drop's SIZE alone can't distinguish these; where
+# OOS LANDS can. A degradation-driven verdict therefore also requires OOS
+# to land at or below `WF_OOS_SHARPE_OVERFIT_CEILING`. A large drop that
+# leaves OOS still strongly positive doesn't trip this on its own (it can
+# still contribute to SHAKY via the mild-degradation caution below).
 WF_DEGRADATION_THRESHOLD = 0.5
+
+# See above: the size of the IS->OOS drop only counts as the overfit tell
+# if OOS itself lands at or below this. 0.0 -- a strategy whose OOS Sharpe
+# is still positive hasn't (on this signal alone) stopped working, even if
+# it's working less well than IS suggested.
+WF_OOS_SHARPE_OVERFIT_CEILING = 0.0
 
 # If this share (or more) of walk-forward folds are individually
 # low_confidence (chosen IS trade count below walk_forward.py's
@@ -161,7 +187,12 @@ def compute_verdict(
     degradation = walk_forward.degradation
     has_wf_signal = not (math.isnan(is_sharpe) or math.isnan(oos_sharpe))
     sign_flip = has_wf_signal and is_sharpe > 0 and oos_sharpe < 0
-    large_degradation = has_wf_signal and not math.isnan(degradation) and degradation >= WF_DEGRADATION_THRESHOLD
+    large_degradation = (
+        has_wf_signal
+        and not math.isnan(degradation)
+        and degradation >= WF_DEGRADATION_THRESHOLD
+        and oos_sharpe <= WF_OOS_SHARPE_OVERFIT_CEILING
+    )
     wf_overfit_signature = sign_flip or large_degradation
 
     wf_evidence_thin = total_folds == 0 or (
@@ -200,15 +231,38 @@ def compute_verdict(
     # entirely (or mostly) out of folds too thin to trust. Checked BEFORE
     # any other signal so a fragile param or a bad DSR can't pull this back
     # toward LIKELY_OVERFIT -- the WF evidence problem applies regardless.
-    if wf_overfit_signature and wf_evidence_thin:
-        reasons = (
-            f"Out-of-sample performance looks worse than in-sample, but "
-            f"{low_confidence_folds}/{total_folds} walk-forward folds had too few "
-            "in-sample trades to trust the parameters that degradation was measured "
-            "against -- there isn't enough evidence here to call this overfit, only "
-            "that it hasn't been validated.",
-        )
-        return VerdictResult(verdict=UNTESTABLE, reasons=reasons, details=details)
+    #
+    # DSR is included in the guard, not just WF degradation: DSR's `n` is
+    # period-based (hundreds of daily bars) so it looks "stable" even with
+    # only a handful of round-trip trades, but its skew/kurtosis inputs are
+    # computed on that same thin-trade return series, where higher moments
+    # are themselves unstable. A confident-looking DSR-fail manufactured
+    # from garbage moments on sparse data is the same dishonest-confidence
+    # failure mode this project exists to catch -- it must not override the
+    # untestable read just because it arrives via a different check.
+    if wf_evidence_thin and (wf_overfit_signature or dsr_fails):
+        reasons = []
+        if wf_overfit_signature:
+            reasons.append(
+                f"Out-of-sample performance looks worse than in-sample, but "
+                f"{low_confidence_folds}/{total_folds} walk-forward folds had too few "
+                "in-sample trades to trust the parameters that degradation was measured "
+                "against -- there isn't enough evidence here to call this overfit, only "
+                "that it hasn't been validated."
+            )
+        if dsr_fails:
+            reasons.append(
+                f"Deflated Sharpe Ratio ({dsr_value:.2f}) also failed, but on a return "
+                "series too thin to trust its higher moments (skew/kurtosis) -- a "
+                "confident-looking DSR-fail on sparse data can itself be an artifact of "
+                "unstable moment estimates, not evidence of overfitting."
+            )
+        if not reasons:
+            reasons.append(
+                f"Walk-forward evidence is too thin ({low_confidence_folds}/{total_folds} "
+                "folds low_confidence) to validate this strategy's generalization."
+            )
+        return VerdictResult(verdict=UNTESTABLE, reasons=tuple(reasons), details=details)
 
     if total_folds == 0:
         reasons = (
@@ -218,7 +272,15 @@ def compute_verdict(
         )
         return VerdictResult(verdict=UNTESTABLE, reasons=reasons, details=details)
 
-    strong_overfit_signal = (wf_overfit_signature and not wf_evidence_thin) or dsr_fails
+    # Both these conditions already had their "is the WF axis untestable?"
+    # check applied above (the guard returns before reaching here whenever
+    # wf_evidence_thin is True and either signal fired) -- the
+    # `and not wf_evidence_thin` here is therefore redundant in practice,
+    # kept only as an explicit, locally-readable invariant rather than a
+    # silent dependency on code order above.
+    strong_overfit_signal = (wf_overfit_signature and not wf_evidence_thin) or (
+        dsr_fails and not wf_evidence_thin
+    )
     if strong_overfit_signal:
         reasons = []
         if wf_overfit_signature and not wf_evidence_thin:
