@@ -1,0 +1,32 @@
+{
+  "kind": "no_exit",
+  "no_exit": {
+    "message": "This isn't a round-trip strategy \u2014 with no exit rule it's buy-and-hold from 2010-01-16. Robustness checks for round-trip strategies don't apply; here's the buy-and-hold benchmark comparison instead.",
+    "first_entry_date": "2010-01-16",
+    "strategy_metrics": {
+      "total_return": 0.16412382044271998,
+      "annualized_return": 0.2299899988226357,
+      "sharpe_ratio": 1.2548851597088104,
+      "max_drawdown": -0.2000000000000023,
+      "win_rate": 1.0,
+      "num_trades": 1,
+      "start": "2010-01-16",
+      "end": "2010-07-19"
+    },
+    "benchmark_metrics": {
+      "total_return": 0.16412382044271998,
+      "annualized_return": 0.2299899988226357,
+      "sharpe_ratio": 1.2548851597088104,
+      "max_drawdown": -0.2000000000000023,
+      "win_rate": null,
+      "num_trades": 0,
+      "start": "2010-01-16",
+      "end": "2010-07-19"
+    }
+  },
+  "sensitivity": null,
+  "walk_forward": null,
+  "deflated_sharpe": null,
+  "regime": null,
+  "verdict": null
+}

@@ -26,6 +26,7 @@ from app.robustness.sensitivity import run_sensitivity
 from app.robustness.verdict import build_no_exit_result, compute_verdict, is_no_exit_strategy
 from app.robustness.walk_forward import (
     DEFAULT_IN_SAMPLE_BARS,
+    DEFAULT_MIN_TRADES_FOR_CONFIDENCE,
     DEFAULT_OUT_OF_SAMPLE_BARS,
     DEFAULT_STEP_BARS,
     run_walk_forward,
@@ -51,6 +52,7 @@ def run_robustness(
     in_sample_bars: int = DEFAULT_IN_SAMPLE_BARS,
     out_of_sample_bars: int = DEFAULT_OUT_OF_SAMPLE_BARS,
     step_bars: int = DEFAULT_STEP_BARS,
+    min_trades_for_confidence: int = DEFAULT_MIN_TRADES_FOR_CONFIDENCE,
 ) -> dict:
     """Run the full robustness suite, or the no-exit short-circuit.
 
@@ -80,6 +82,7 @@ def run_robustness(
         step_bars=step_bars,
         fees=fees,
         slippage=slippage,
+        min_trades_for_confidence=min_trades_for_confidence,
     )
     regime = run_regime_analysis(ir, price_data, fees=fees, slippage=slippage)
 
