@@ -111,8 +111,17 @@ export function RobustnessPanel({ sensitivity, walkForward, deflatedSharpe, regi
             </p>
           )}
           {regime.marginal_flags.map((flag) => (
-            <p key={flag.axis} data-testid={`stat-marginal-${flag.axis}`}>
-              {flag.axis} axis dominated by {flag.dominant_label}: {formatPercentOrNA(flag.share)} of gains
+            <p
+              key={flag.flag}
+              data-testid={`stat-marginal-${flag.flag}`}
+              className={
+                flag.confidence === "confirmed"
+                  ? "font-medium text-amber-700 dark:text-amber-400"
+                  : "text-zinc-400 dark:text-zinc-500"
+              }
+            >
+              Bull-concentrated: +{(flag.excess * 100).toFixed(1)} pp vs benchmark
+              {flag.confidence === "provisional" ? " (provisional)" : ""}
             </p>
           ))}
           <table className="mt-2 w-full text-left">

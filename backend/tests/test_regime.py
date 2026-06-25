@@ -153,63 +153,148 @@ def test_no_concentration_flag_when_gains_are_spread_across_regimes(monkeypatch)
 
 
 # ---------------------------------------------------------------------------
-# Marginal concentration (per-axis) -- catches bull/bear- or vol-dependence
-# that the 2x2 cell view can mask by splitting gains across two cells that
-# agree on one axis.
+# Marginal bull concentration -- benchmark-relative excess (Phase 4d).
+# Unit-level tests against `_detect_bull_concentration` directly hit the
+# four invariants precisely; integration-level tests below go through
+# `run_regime_analysis` to confirm the wiring (benchmark derived from the
+# SAME price series, not a parameter) actually behaves this way end to end.
 # ---------------------------------------------------------------------------
 
 
-def test_bull_dependence_marginal_flag_trips_when_cell_flag_stays_silent(monkeypatch):
-    """The canonical '2020-21 bull run' shape: gains land in BOTH bull
-    cells (crash-recover high-vol + grind-up low-vol), losses in BOTH bear
-    cells. Neither single cell owns 80% of the gains, so the per-cell flag
-    must stay silent -- but the trend MARGINAL (bull vs bear, ignoring vol)
-    owns ~100% and must trip."""
-    close = _two_segment_series(400, 400)
-    trend_labels, vol_labels = regime_module._axis_labels(close)
-    labels = regime_module._combine_labels(trend_labels, vol_labels)
+def _bull_bear_valid(n_bull: int, n_bear: int) -> tuple:
+    """A trend_labels/valid pair with no NaN warmup gaps -- the unit tests
+    below construct daily_returns/benchmark_returns directly and don't need
+    a real 200-day MA warmup, just a clean bull/bear split to mask against."""
+    idx = pd.date_range("2010-01-01", periods=n_bull + n_bear, freq="D")
+    trend_labels = pd.Series(["bull"] * n_bull + ["bear"] * n_bear, index=idx, dtype=object)
+    valid = pd.Series(True, index=idx)
+    return trend_labels, valid
 
-    def _fake_returns(ir, price_data, **kwargs):
+
+def test_invariant_a_zero_excess_does_not_flag_regardless_of_absolute_share():
+    """A strategy whose bull_share equals the benchmark's bull_share must
+    not flag, even though the absolute share (90%) would have tripped the
+    old unconditional 80% threshold."""
+    trend_labels, valid = _bull_bear_valid(180, 20)
+    idx = trend_labels.index
+    # Both strategy and benchmark earn the same gains pattern -> identical
+    # bull_share (90% of bars are bull, gains are uniform) -> excess = 0.
+    returns = pd.Series(0.01, index=idx)
+    flags = regime_module._detect_bull_concentration(returns, returns.copy(), valid, trend_labels)
+    assert flags == ()
+
+
+def test_invariant_b_excess_just_above_threshold_is_provisional():
+    trend_labels, valid = _bull_bear_valid(100, 100)
+    idx = trend_labels.index
+    bull_mask = trend_labels == "bull"
+
+    # Benchmark: gains split evenly 50/50 bull/bear -> benchmark_bull_share = 0.5.
+    benchmark_returns = pd.Series(0.01, index=idx)
+
+    # Strategy: bull_share = 0.68 -> excess = 0.18 (threshold 0.15 < 0.18 <= 0.20).
+    strategy_returns = pd.Series(0.0, index=idx)
+    n_bull_bars = int(bull_mask.sum())
+    bull_positions = [i for i, v in enumerate(bull_mask) if v]
+    bear_positions = [i for i, v in enumerate(bull_mask) if not v]
+    # 68 of the 100 bull bars and 32 of the 100 bear bars carry equal-sized
+    # gains -> bull share of total gains = 68 / (68 + 32) = 0.68.
+    for i in bull_positions[:68]:
+        strategy_returns.iloc[i] = 0.01
+    for i in bear_positions[:32]:
+        strategy_returns.iloc[i] = 0.01
+
+    flags = regime_module._detect_bull_concentration(strategy_returns, benchmark_returns, valid, trend_labels)
+    assert len(flags) == 1
+    flag = flags[0]
+    assert flag["flag"] == "bull_concentration"
+    assert flag["excess"] == pytest.approx(0.18, abs=1e-4)
+    assert flag["confidence"] == "provisional"
+    assert n_bull_bars == 100  # sanity: the 50/50 split assumed above holds
+
+
+def test_invariant_c_excess_well_above_band_is_confirmed():
+    trend_labels, valid = _bull_bear_valid(100, 100)
+    idx = trend_labels.index
+    bull_mask = trend_labels == "bull"
+    bull_positions = [i for i, v in enumerate(bull_mask) if v]
+    bear_positions = [i for i, v in enumerate(bull_mask) if not v]
+
+    benchmark_returns = pd.Series(0.0, index=idx)
+    for i in bull_positions + bear_positions:
+        benchmark_returns.iloc[i] = 0.01  # uniform -> benchmark_bull_share = 0.5
+
+    # Strategy: bull share of gains = 0.72 -> excess = 0.22 (> 0.20 -> confirmed).
+    strategy_returns = pd.Series(0.0, index=idx)
+    for i in bull_positions[:72]:
+        strategy_returns.iloc[i] = 0.01
+    for i in bear_positions[:28]:
+        strategy_returns.iloc[i] = 0.01
+
+    flags = regime_module._detect_bull_concentration(strategy_returns, benchmark_returns, valid, trend_labels)
+    assert len(flags) == 1
+    assert flags[0]["excess"] == pytest.approx(0.22, abs=1e-4)
+    assert flags[0]["confidence"] == "confirmed"
+
+
+def test_invariant_d_buy_and_hold_against_itself_does_not_flag(monkeypatch):
+    """The strategy IS the benchmark: a long-only, no-exit-ever position
+    held across the whole window earns (up to slippage on the single entry
+    bar) the same per-bar returns the benchmark is computed from. Excess
+    must land at ~0, not at the strategy's large absolute bull share."""
+    close = _two_segment_series(400, 50)  # mostly bull, by construction
+    price_data = _price_data(close)
+
+    def _buy_and_hold_returns(ir, pd_, **kwargs):
+        # No fees/slippage -- isolates the invariant from the entry-bar
+        # slippage cost noted in regime.py's own benchmark-derivation
+        # comment, so excess lands at exactly 0, not merely close to it.
+        daily_returns = pd_["Close"].pct_change()
+        entries = pd.Series(False, index=pd_.index)
+        entries.iloc[1] = True
+        return daily_returns, entries
+
+    monkeypatch.setattr(regime_module, "run_ir_backtest_returns", _buy_and_hold_returns)
+
+    report = run_regime_analysis(_simple_ir(), price_data, fees=0.0, slippage=0.0)
+    assert report.marginal_flags == ()
+
+
+def test_marginal_flag_trips_when_strategy_is_more_bull_concentrated_than_benchmark(monkeypatch):
+    """Integration-level: a strategy that earns ALL its gains in bull bars
+    on a series where buy-and-hold itself earns a meaningful share of gains
+    in bear bars (a bear-segment relief rally) is more bull-concentrated
+    than its own benchmark, and must flag -- the scenario the old absolute
+    80% threshold was trying (and over-firing) to catch."""
+    close = _two_segment_series(400, 400)
+    trend_labels, _ = regime_module._axis_labels(close)
+
+    def _bull_only_returns(ir, price_data, **kwargs):
         idx = price_data.index
         bull_mask = (trend_labels == "bull").reindex(idx, fill_value=False)
         bear_mask = (trend_labels == "bear").reindex(idx, fill_value=False)
         returns = pd.Series(0.0, index=idx)
-        returns[bull_mask] = 0.01  # split across bull_high_vol AND bull_low_vol
-        returns[bear_mask] = -0.01  # split across bear_high_vol AND bear_low_vol
+        returns[bull_mask] = 0.01
+        returns[bear_mask] = -0.01  # strategy loses money in bear bars -> 0 bear gains
         entries = pd.Series(False, index=idx)
         return returns, entries
 
-    monkeypatch.setattr(regime_module, "run_ir_backtest_returns", _fake_returns)
+    monkeypatch.setattr(regime_module, "run_ir_backtest_returns", _bull_only_returns)
 
     price_data = _price_data(close)
     report = run_regime_analysis(_simple_ir(), price_data)
 
-    # Per-cell flag stays silent: gains split roughly 50/50 across the two
-    # bull cells (whatever the exact vol-median split happens to be).
-    assert report.concentrated_regime is None
-    assert report.concentration_share is None
-
-    # Trend marginal flag trips for "bull".
-    trend_flags = [f for f in report.marginal_flags if f.axis == "trend"]
-    assert len(trend_flags) == 1
-    assert trend_flags[0].dominant_label == "bull"
-    assert trend_flags[0].share >= regime_module.MARGINAL_CONCENTRATION_SHARE_THRESHOLD
-    assert trend_flags[0].dependence_label == "bull-dependent"
-
-
-def test_no_marginal_flag_when_gains_are_spread_across_both_axis_sides(monkeypatch):
-    close = _two_segment_series(400, 400)
-
-    def _fake_returns(ir, price_data, **kwargs):
-        returns = pd.Series(0.005, index=price_data.index)  # uniform everywhere
-        entries = pd.Series(False, index=price_data.index)
-        return returns, entries
-
-    monkeypatch.setattr(regime_module, "run_ir_backtest_returns", _fake_returns)
-
-    price_data = _price_data(close)
-    report = run_regime_analysis(_simple_ir(), price_data)
-    assert report.marginal_flags == ()
+    assert len(report.marginal_flags) == 1
+    flag = report.marginal_flags[0]
+    assert flag["flag"] == "bull_concentration"
+    assert flag["strategy_bull_share"] == pytest.approx(1.0, abs=1e-6)
+    # The benchmark (buy-and-hold on this same two-segment series) earns
+    # essentially none of its gains in the bear segment either (it's a
+    # clean downtrend, not a choppy one) -- so this scenario mainly proves
+    # the wiring (benchmark derived internally, real trend_labels) rather
+    # than a large excess; the threshold-crossing magnitude is covered by
+    # the unit-level invariant tests above.
+    assert flag["benchmark_bull_share"] < flag["strategy_bull_share"]
 
 
 def test_num_entries_attributed_per_regime_matches_real_entry_flags(monkeypatch):

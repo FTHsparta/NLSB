@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 
 from app.robustness import verdict as verdict_module
-from app.robustness.regime import MarginalConcentration, RegimeReport
+from app.robustness.regime import RegimeReport
 from app.robustness.sensitivity import GridPointResult, ParamSensitivity
 from app.robustness.verdict import (
     LIKELY_OVERFIT,
@@ -162,7 +162,15 @@ def test_shaky_from_regime_marginal_flag():
         breakdowns=(),
         concentrated_regime=None,
         concentration_share=None,
-        marginal_flags=(MarginalConcentration(axis="trend", dominant_label="bull", share=0.95),),
+        marginal_flags=(
+            {
+                "flag": "bull_concentration",
+                "confidence": "confirmed",
+                "excess": 0.3,
+                "strategy_bull_share": 0.95,
+                "benchmark_bull_share": 0.65,
+            },
+        ),
     )
 
     result = compute_verdict(walk_forward=wf, sensitivity=[], dsr=_dsr(0.97), regime=regime)

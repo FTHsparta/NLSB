@@ -70,17 +70,19 @@ export interface RegimeBreakdown {
   num_bars: number;
 }
 
-export interface MarginalConcentration {
-  axis: "trend" | "volatility";
-  dominant_label: string;
-  share: number;
+export interface MarginalFlag {
+  flag: string;
+  confidence: "confirmed" | "provisional";
+  excess: number;
+  strategy_bull_share: number;
+  benchmark_bull_share: number;
 }
 
 export interface RegimeReport {
   breakdowns: RegimeBreakdown[];
   concentrated_regime: string | null;
   concentration_share: number | null;
-  marginal_flags: MarginalConcentration[];
+  marginal_flags: MarginalFlag[];
 }
 
 export interface DeflatedSharpeResult {

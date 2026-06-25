@@ -19,14 +19,26 @@ it is not a third trading rule and must never be fed back into the IR or
 treated as something the strategy itself reacted to.
 
 Concentration is checked two ways: per 2x2 cell (`concentrated_regime`) and
-per axis MARGINALLY (`marginal_flags`) -- trend alone (bull vs bear) and
-volatility alone (high vs low), each ignoring the other axis. The marginal
-check exists because a strategy can split its gains ~50/50 across two
-cells that share a trend (e.g. bull_high_vol and bull_low_vol) and never
-trip the 80% cell threshold in either, while still owning ~100% of its
-gains from "bull markets" -- exactly the "only worked in the 2020-21 bull
-run" story (2020 = bull/high-vol crash-recover, 2021 = bull/low-vol grind
-up).
+on the trend axis alone, MARGINALLY (`marginal_flags`) -- bull vs bear,
+ignoring volatility entirely. The marginal check exists because a strategy
+can split its gains ~50/50 across two cells that share a trend (e.g.
+bull_high_vol and bull_low_vol) and never trip the 80% cell threshold in
+either, while still owning ~100% of its gains from "bull markets" --
+exactly the "only worked in the 2020-21 bull run" story (2020 =
+bull/high-vol crash-recover, 2021 = bull/low-vol grind up).
+
+The marginal check is BENCHMARK-RELATIVE, not absolute: an unconditional
+80%-of-gains-in-bull-regimes threshold flags nearly every long-only
+strategy, including plain buy-and-hold, because the market itself parks
+most of its own gains in bull regimes (by this module's own bull/bear
+definition). What's actually informative is whether a strategy is MORE
+bull-concentrated than the asset it trades -- i.e. whether the strategy
+adds bull-dependence on top of the base rate the market already has.
+`marginal_flags` therefore reports a strategy's bull-regime gains share
+MINUS a same-window buy-and-hold benchmark's bull-regime gains share
+(`excess`), and only flags when that excess clears a threshold. Buy-and-
+hold itself nets out to ~zero excess against its own benchmark and never
+flags, by construction.
 
 Every return figure here comes from `run_ir_backtest_returns`, which shares
 100% of its computation with `run_ir_backtest` (same vectorbt portfolio,
@@ -54,15 +66,20 @@ VOL_WINDOW = 60
 # regardless of how losses are distributed across regimes.
 CONCENTRATION_SHARE_THRESHOLD = 0.8
 
-# Same idea, applied per-axis (trend alone, vol alone) instead of per 2x2
-# cell. This is what catches "only worked in the 2020-21 bull run": gains
-# split ~50/50 across bull_high_vol (2020's crash-recover) and bull_low_vol
-# (2021's grind-up) never hit 80% in either CELL, but both cells are "bull"
-# -- the trend MARGINAL still owns ~100% of the gains. Same threshold value
-# as the cell check (no documented reason to use a different number), kept
-# as a separate constant since the two checks are conceptually independent
-# and could diverge later.
-MARGINAL_CONCENTRATION_SHARE_THRESHOLD = 0.8
+# How much MORE of its gains-only share a strategy can own in bull regimes
+# than a same-window buy-and-hold benchmark does, before that excess is
+# flagged at all. Not from literature -- chosen as a deliberately wide band
+# so estimation noise in a benchmark computed from the same finite price
+# series doesn't trip the flag on a strategy that is, in substance, no more
+# bull-dependent than the market it trades.
+MARGINAL_BULL_EXCESS_THRESHOLD = 0.15
+
+# Excess above this (threshold + 0.05) is reported with confidence
+# "confirmed" rather than "provisional". The 0.05 band is an honest
+# acknowledgment that `excess` is the difference of two noisy share
+# estimates -- a strategy landing just past the bare threshold could be
+# benchmark-level dependence plus noise, not a real signal.
+MARGINAL_BULL_EXCESS_CONFIRMED_THRESHOLD = 0.20
 
 
 @dataclass(frozen=True)
@@ -76,29 +93,14 @@ class RegimeBreakdown:
 
 
 @dataclass(frozen=True)
-class MarginalConcentration:
-    """A single regime axis (trend or volatility) where one side of that
-    axis alone -- ignoring the other axis entirely -- owns most of the
-    gains. Distinct from the 2x2 cell concentration check: a strategy can
-    split gains evenly across two cells that share an axis value and still
-    be fully dependent on that axis."""
-
-    axis: str  # "trend" | "volatility"
-    dominant_label: str  # "bull" | "bear" | "high_vol" | "low_vol"
-    share: float
-
-    @property
-    def dependence_label(self) -> str:
-        if self.axis == "trend":
-            return f"{self.dominant_label}-dependent"
-        return "volatility-dependent"
-
-
-@dataclass(frozen=True)
 class RegimeReport:
     breakdowns: tuple
     concentrated_regime: str | None
     concentration_share: float | None
+    # Each element is a plain dict (not a dataclass) -- this is the
+    # JSON-serializable shape `run_robustness` returns directly, with no
+    # `dataclasses.asdict` conversion step needed for this field. See
+    # `_detect_bull_concentration` for the schema.
     marginal_flags: tuple = ()
 
 
@@ -146,7 +148,13 @@ def run_regime_analysis(
         )
 
     concentrated_regime, concentration_share = _detect_concentration(breakdowns, daily_returns, valid, labels)
-    marginal_flags = _detect_marginal_concentration(daily_returns, valid, trend_labels, vol_labels)
+
+    # Computed from the full (untrimmed) Close series, THEN reindexed to
+    # eff_index -- not from the already-trimmed `close` above -- so the
+    # first eff-window bar gets its real day-over-day return instead of a
+    # spurious NaN from having no predecessor left in a pre-trimmed series.
+    benchmark_returns = price_data["Close"].pct_change().reindex(eff_index)
+    marginal_flags = _detect_bull_concentration(daily_returns, benchmark_returns, valid, trend_labels)
 
     return RegimeReport(
         breakdowns=tuple(breakdowns),
@@ -213,33 +221,50 @@ def _detect_concentration(
     return None, None
 
 
-def _detect_marginal_concentration(
+def _detect_bull_concentration(
     daily_returns: pd.Series,
+    benchmark_returns: pd.Series,
     valid: pd.Series,
     trend_labels: pd.Series,
-    vol_labels: pd.Series,
 ) -> tuple:
-    """Per-axis version of `_detect_concentration`: aggregate gains by
-    trend alone and by volatility alone (each ignoring the other axis),
-    and flag an axis whose dominant side owns most of the gains -- catches
-    bull/bear- or volatility-dependence that the 2x2 cell view can mask by
-    splitting gains across two cells that agree on one axis."""
+    """Benchmark-relative version of the trend-axis marginal check: how
+    much MORE of its gains-only share does the strategy own in bull-labeled
+    bars than a same-window buy-and-hold benchmark does, using the SAME
+    bull/bear labels for both (so the comparison isn't confounded by a
+    different regime definition). `benchmark_returns` must already be
+    aligned to `daily_returns`'s index by the caller -- this function does
+    not resolve a mismatched benchmark series, it only consumes one.
+
+    Returns an empty tuple if either the strategy or the benchmark has no
+    positive return at all over the valid window (gains-only share is
+    undefined in that case, not zero) -- a strategy can't be said to be
+    MORE bull-concentrated than a benchmark whose own share can't be
+    computed."""
     positive_returns = daily_returns.clip(lower=0)
     total_positive = positive_returns[valid].sum()
     if not total_positive or total_positive <= 0:
         return ()
 
-    flags = []
-    for axis_name, axis_labels in (("trend", trend_labels), ("volatility", vol_labels)):
-        best_label = None
-        best_share = 0.0
-        for label in sorted(axis_labels.dropna().unique()):
-            mask = valid & (axis_labels == label)
-            share = positive_returns[mask].sum() / total_positive
-            if share > best_share:
-                best_share = share
-                best_label = label
-        if best_label is not None and best_share >= MARGINAL_CONCENTRATION_SHARE_THRESHOLD:
-            flags.append(MarginalConcentration(axis=axis_name, dominant_label=best_label, share=float(best_share)))
+    benchmark_positive = benchmark_returns.clip(lower=0)
+    benchmark_total_positive = benchmark_positive[valid].sum()
+    if not benchmark_total_positive or benchmark_total_positive <= 0:
+        return ()
 
-    return tuple(flags)
+    bull_mask = valid & (trend_labels == "bull")
+    strategy_bull_share = float(positive_returns[bull_mask].sum() / total_positive)
+    benchmark_bull_share = float(benchmark_positive[bull_mask].sum() / benchmark_total_positive)
+    excess = strategy_bull_share - benchmark_bull_share
+
+    if excess <= MARGINAL_BULL_EXCESS_THRESHOLD:
+        return ()
+
+    confidence = "confirmed" if excess > MARGINAL_BULL_EXCESS_CONFIRMED_THRESHOLD else "provisional"
+    return (
+        {
+            "flag": "bull_concentration",
+            "confidence": confidence,
+            "excess": round(excess, 4),
+            "strategy_bull_share": round(strategy_bull_share, 4),
+            "benchmark_bull_share": round(benchmark_bull_share, 4),
+        },
+    )

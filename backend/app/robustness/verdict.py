@@ -213,7 +213,11 @@ def compute_verdict(
             f"({regime.concentrated_regime})"
         )
     for flag in regime.marginal_flags:
-        regime_flags.append(f"{flag.share:.0%} of gains are {flag.dependence_label}")
+        provisional_suffix = " (provisional)" if flag["confidence"] == "provisional" else ""
+        regime_flags.append(
+            f"{flag['strategy_bull_share']:.0%} of gains are bull-dependent, "
+            f"{flag['excess']:.0%} more than a buy-and-hold benchmark{provisional_suffix}"
+        )
 
     details = {
         "total_folds": total_folds,
