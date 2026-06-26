@@ -195,6 +195,87 @@ def build_untestable() -> dict:
     )
 
 
+def _two_segment_series(n_bull: int, n_bear: int, seed: int, bear_noise: float) -> pd.Series:
+    """A clean uptrend followed by a noisier downtrend -- mirrors
+    `tests/test_regime.py::_two_segment_series`, with `bear_noise`
+    exposed because the bull-concentration fixtures below need real
+    up-day noise IN the bear segment: that's what gives a same-window
+    buy-and-hold benchmark a non-trivial share of its own gains from bear
+    bars, which is the only way a strategy can be MORE bull-concentrated
+    than its benchmark (see `app.robustness.regime`'s module docstring)."""
+    rng = np.random.default_rng(seed)
+    bull = 100 + np.linspace(0, 100, n_bull) + rng.normal(0, 0.3, n_bull)
+    bear = bull[-1] + np.linspace(0, -100, n_bear) + rng.normal(0, bear_noise, n_bear)
+    close = np.concatenate([bull, bear])
+    idx = pd.date_range("2010-01-01", periods=len(close), freq="D")
+    return pd.Series(close, index=idx, dtype=float)
+
+
+def _sma_trend_following_ir(period: int = 200) -> dict:
+    """Trend-following, not mean-reversion: long only while price is
+    above its own SMA, flat otherwise. Deliberately uses the SAME period
+    as `app.robustness.regime.MA_PERIOD` so the strategy is in the market
+    almost exactly when the regime module's own bull/bear label says
+    'bull' -- i.e. a strategy that, by construction, earns ~0 gains
+    during bear-labeled bars, unlike the buy-and-hold benchmark it's
+    compared against, which stays exposed (and keeps collecting bear-bar
+    up-day gains) throughout."""
+    return {
+        "asset": {"ticker": "SPY", "asset_class": "equity"},
+        "indicators": [{"id": "sma", "type": "SMA", "params": {"period": period}, "source": "close"}],
+        "entry": {"left": "close", "op": "crosses_above", "right": "sma"},
+        "exit": {"left": "close", "op": "crosses_below", "right": "sma"},
+        "position": {"direction": "long", "size": "full"},
+        "risk": None,
+    }
+
+
+def build_bull_concentration_confirmed() -> dict:
+    """Found by direct search over (seed, bear_noise) for
+    `_two_segment_series` + `_sma_trend_following_ir`, the same
+    construction `tests/test_regime.py`'s 4d integration test uses
+    conceptually (trend-following strategy vs. its own buy-and-hold
+    benchmark on a series with bear-segment up-day noise) -- but run
+    through the REAL, unmocked orchestrator rather than a monkeypatched
+    `run_ir_backtest_returns`, so this fixture is the genuine
+    `run_robustness` output the frontend will actually receive, not a
+    hand-shaped approximation of it. Lands at excess=0.3012, comfortably
+    past `MARGINAL_BULL_EXCESS_CONFIRMED_THRESHOLD` (0.20)."""
+    close = _two_segment_series(400, 400, seed=4, bear_noise=1.85)
+    full_ir, assumptions = apply_defaults(_sma_trend_following_ir(200))
+    return run_robustness(
+        full_ir,
+        _price_data(close),
+        assumptions,
+        in_sample_bars=200,
+        out_of_sample_bars=80,
+        step_bars=80,
+        min_trades_for_confidence=3,
+    )
+
+
+def build_bull_concentration_provisional() -> dict:
+    """Same construction as `build_bull_concentration_confirmed`, a
+    different (seed, bear_noise) pair found to land excess=0.1635 --
+    inside the 0.15-0.20 'provisional' band rather than past it. The
+    search space is genuinely cliff-like (a trend-following strategy's
+    entries/exits are discrete crossing events, not a smooth dial), so
+    this exact pair is load-bearing: re-running the search with a wider
+    net would likely find a different pair, but this one is pinned by
+    `test_robustness_fixtures.py` and should not be casually swapped."""
+    close = _two_segment_series(400, 400, seed=174, bear_noise=1.84)
+    full_ir, assumptions = apply_defaults(_sma_trend_following_ir(200))
+    return run_robustness(
+        full_ir,
+        _price_data(close),
+        assumptions,
+        in_sample_bars=200,
+        out_of_sample_bars=80,
+        step_bars=80,
+        min_trades_for_confidence=3,
+    )
+
+
 def build_no_exit() -> dict:
     sparse_ir = {
         "asset": {"ticker": "SPY"},
@@ -212,6 +293,8 @@ def main() -> None:
     _dump("shaky", build_shaky())
     _dump("likely_overfit", build_likely_overfit())
     _dump("untestable", build_untestable())
+    _dump("bull_concentration_confirmed", build_bull_concentration_confirmed())
+    _dump("bull_concentration_provisional", build_bull_concentration_provisional())
     _dump("no_exit", build_no_exit())
 
 

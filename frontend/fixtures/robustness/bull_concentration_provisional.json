@@ -1,0 +1,252 @@
+{
+  "kind": "full",
+  "no_exit": null,
+  "sensitivity": [
+    {
+      "param_id": "indicators.sma.period",
+      "kind": "period",
+      "stated_value": 200,
+      "grid_points": [
+        {
+          "value": 196,
+          "sharpe_ratio": -0.13327831362800358,
+          "per_period_sharpe_ratio": -0.008395744595661146,
+          "total_return": -0.009737612648299364,
+          "num_trades": 2,
+          "error": null
+        },
+        {
+          "value": 198,
+          "sharpe_ratio": -0.13349917049523302,
+          "per_period_sharpe_ratio": -0.00840965727056662,
+          "total_return": -0.009737612648299364,
+          "num_trades": 2,
+          "error": null
+        },
+        {
+          "value": 200,
+          "sharpe_ratio": -0.13372112896257513,
+          "per_period_sharpe_ratio": -0.008423639339756437,
+          "total_return": -0.009737612648299364,
+          "num_trades": 2,
+          "error": null
+        },
+        {
+          "value": 202,
+          "sharpe_ratio": -0.13394419821824086,
+          "per_period_sharpe_ratio": -0.008437691382033478,
+          "total_return": -0.009737612648299364,
+          "num_trades": 2,
+          "error": null
+        },
+        {
+          "value": 204,
+          "sharpe_ratio": -0.1382811206790081,
+          "per_period_sharpe_ratio": -0.008710891817427775,
+          "total_return": -0.0100064788593485,
+          "num_trades": 2,
+          "error": null
+        }
+      ],
+      "peakiness": 0.03741224060712709,
+      "robustness_label": "robust (broad plateau)"
+    }
+  ],
+  "walk_forward": {
+    "folds": [
+      {
+        "fold_index": 0,
+        "is_start": "2010-01-01",
+        "is_end": "2010-07-19",
+        "oos_start": "2010-07-20",
+        "oos_end": "2010-10-07",
+        "chosen_params": {
+          "indicators.sma.period": 200
+        },
+        "is_sharpe": null,
+        "is_total_return": null,
+        "is_num_trades": 0,
+        "oos_sharpe": null,
+        "oos_total_return": null,
+        "oos_num_trades": 0,
+        "low_confidence": true,
+        "error": "division by zero"
+      },
+      {
+        "fold_index": 1,
+        "is_start": "2010-03-22",
+        "is_end": "2010-10-07",
+        "oos_start": "2010-10-08",
+        "oos_end": "2010-12-26",
+        "chosen_params": {
+          "indicators.sma.period": 200
+        },
+        "is_sharpe": null,
+        "is_total_return": null,
+        "is_num_trades": 0,
+        "oos_sharpe": null,
+        "oos_total_return": null,
+        "oos_num_trades": 0,
+        "low_confidence": true,
+        "error": "division by zero"
+      },
+      {
+        "fold_index": 2,
+        "is_start": "2010-06-10",
+        "is_end": "2010-12-26",
+        "oos_start": "2010-12-27",
+        "oos_end": "2011-03-16",
+        "chosen_params": {
+          "indicators.sma.period": 200
+        },
+        "is_sharpe": null,
+        "is_total_return": null,
+        "is_num_trades": 0,
+        "oos_sharpe": null,
+        "oos_total_return": null,
+        "oos_num_trades": 0,
+        "low_confidence": true,
+        "error": "division by zero"
+      },
+      {
+        "fold_index": 3,
+        "is_start": "2010-08-29",
+        "is_end": "2011-03-16",
+        "oos_start": "2011-03-17",
+        "oos_end": "2011-06-04",
+        "chosen_params": {
+          "indicators.sma.period": 200
+        },
+        "is_sharpe": null,
+        "is_total_return": null,
+        "is_num_trades": 0,
+        "oos_sharpe": null,
+        "oos_total_return": null,
+        "oos_num_trades": 0,
+        "low_confidence": true,
+        "error": "division by zero"
+      },
+      {
+        "fold_index": 4,
+        "is_start": "2010-11-17",
+        "is_end": "2011-06-04",
+        "oos_start": "2011-06-05",
+        "oos_end": "2011-08-23",
+        "chosen_params": {
+          "indicators.sma.period": 200
+        },
+        "is_sharpe": null,
+        "is_total_return": null,
+        "is_num_trades": 0,
+        "oos_sharpe": null,
+        "oos_total_return": null,
+        "oos_num_trades": 0,
+        "low_confidence": true,
+        "error": "division by zero"
+      },
+      {
+        "fold_index": 5,
+        "is_start": "2011-02-05",
+        "is_end": "2011-08-23",
+        "oos_start": "2011-08-24",
+        "oos_end": "2011-11-11",
+        "chosen_params": {
+          "indicators.sma.period": 200
+        },
+        "is_sharpe": null,
+        "is_total_return": null,
+        "is_num_trades": 0,
+        "oos_sharpe": null,
+        "oos_total_return": null,
+        "oos_num_trades": 0,
+        "low_confidence": true,
+        "error": "division by zero"
+      },
+      {
+        "fold_index": 6,
+        "is_start": "2011-04-26",
+        "is_end": "2011-11-11",
+        "oos_start": "2011-11-12",
+        "oos_end": "2012-01-30",
+        "chosen_params": {
+          "indicators.sma.period": 200
+        },
+        "is_sharpe": null,
+        "is_total_return": null,
+        "is_num_trades": 0,
+        "oos_sharpe": null,
+        "oos_total_return": null,
+        "oos_num_trades": 0,
+        "low_confidence": true,
+        "error": "division by zero"
+      }
+    ],
+    "aggregate_is_sharpe": null,
+    "aggregate_oos_sharpe": null,
+    "degradation": null
+  },
+  "deflated_sharpe": {
+    "n_trials": 5,
+    "var_sr_trials": 1.7556128457634007e-08,
+    "sr0": 0.0001580181581497523,
+    "dsr": 0.4122308188719652
+  },
+  "regime": {
+    "breakdowns": [
+      {
+        "regime": "bear_high_vol",
+        "share_of_time": 0.5666666666666667,
+        "total_return": -0.02189252625811644,
+        "sharpe_ratio": -0.44793215810336795,
+        "num_entries": 1,
+        "num_bars": 340
+      },
+      {
+        "regime": "bull_high_vol",
+        "share_of_time": 0.05,
+        "total_return": 0.012426971407668352,
+        "sharpe_ratio": 2.780508635234507,
+        "num_entries": 1,
+        "num_bars": 30
+      },
+      {
+        "regime": "bull_low_vol",
+        "share_of_time": 0.38333333333333336,
+        "total_return": 0.0,
+        "sharpe_ratio": null,
+        "num_entries": 0,
+        "num_bars": 230
+      }
+    ],
+    "concentrated_regime": null,
+    "concentration_share": null,
+    "marginal_flags": [
+      {
+        "flag": "bull_concentration",
+        "confidence": "provisional",
+        "excess": 0.1635,
+        "strategy_bull_share": 0.4213,
+        "benchmark_bull_share": 0.2577
+      }
+    ]
+  },
+  "verdict": {
+    "verdict": "UNTESTABLE",
+    "reasons": [
+      "Deflated Sharpe Ratio (0.41) also failed, but on a return series too thin to trust its higher moments (skew/kurtosis) -- a confident-looking DSR-fail on sparse data can itself be an artifact of unstable moment estimates, not evidence of overfitting."
+    ],
+    "details": {
+      "total_folds": 7,
+      "low_confidence_folds": 7,
+      "low_confidence_fold_share": 1.0,
+      "aggregate_is_sharpe": null,
+      "aggregate_oos_sharpe": null,
+      "walk_forward_degradation": null,
+      "dsr": 0.4122308188719652,
+      "fragile_params": [],
+      "regime_flags": [
+        "42% of gains are bull-dependent, 16% more than a buy-and-hold benchmark (provisional)"
+      ]
+    }
+  }
+}

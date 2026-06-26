@@ -13,10 +13,14 @@ import { BuyHoldComparison } from "../BuyHoldComparison";
 import { RobustnessResultView } from "../RobustnessResultView";
 import { VerdictCard } from "../VerdictCard";
 
+import bullConcentrationConfirmedFixture from "@/fixtures/robustness/bull_concentration_confirmed.json";
+import bullConcentrationProvisionalFixture from "@/fixtures/robustness/bull_concentration_provisional.json";
 import likelyOverfitFixture from "@/fixtures/robustness/likely_overfit.json";
 import noExitFixture from "@/fixtures/robustness/no_exit.json";
 import passFixture from "@/fixtures/robustness/pass.json";
 import untestableFixture from "@/fixtures/robustness/untestable.json";
+
+import { RobustnessPanel } from "../RobustnessPanel";
 
 import type { RobustnessResult } from "@/lib/robustness/types";
 
@@ -24,6 +28,8 @@ const PASS_RESULT = passFixture as unknown as RobustnessResult;
 const UNTESTABLE_RESULT = untestableFixture as unknown as RobustnessResult;
 const LIKELY_OVERFIT_RESULT = likelyOverfitFixture as unknown as RobustnessResult;
 const NO_EXIT_RESULT = noExitFixture as unknown as RobustnessResult;
+const BULL_CONCENTRATION_CONFIRMED_RESULT = bullConcentrationConfirmedFixture as unknown as RobustnessResult;
+const BULL_CONCENTRATION_PROVISIONAL_RESULT = bullConcentrationProvisionalFixture as unknown as RobustnessResult;
 
 describe("CONTRACT 1: verdict leads, raw figures follow", () => {
   it("places the verdict label and reason before any raw Sharpe/return figure in DOM order", () => {
@@ -144,5 +150,71 @@ describe("CONTRACT 4: displayed figures equal the result object's figures verbat
     const expectedDegradation = PASS_RESULT.walk_forward.degradation!.toFixed(2);
     expect(screen.getByTestId("stat-degradation")).toHaveTextContent(expectedDegradation);
     expect(within(screen.getByTestId("verdict-card")).getByTestId("verdict-label")).toHaveTextContent("Pass");
+  });
+});
+
+/**
+ * CONTRACT 5 (Phase 4d.1): the marginal bull-concentration render path,
+ * exercised end to end via RobustnessResultView against the two REAL
+ * fixtures dumped from the real orchestrator (`build_bull_concentration_confirmed`/
+ * `build_bull_concentration_provisional`, pinned backend-side in
+ * `test_robustness_fixtures.py`). 4d proved the flag FIRES; nothing
+ * proved it RENDERS until these tests -- before this, all five orchestrator
+ * fixtures had an empty `marginal_flags`, so this entire branch in
+ * `RobustnessPanel` was dead code as far as the test suite could tell.
+ */
+describe("CONTRACT 5: marginal bull-concentration flag renders, not just fires", () => {
+  it("renders a confirmed flag at full prominence, with no '(provisional)' suffix", () => {
+    render(<RobustnessResultView result={BULL_CONCENTRATION_CONFIRMED_RESULT} />);
+    const flagEl = screen.getByTestId("stat-marginal-bull_concentration");
+    expect(flagEl).toHaveClass("text-amber-700");
+    expect(flagEl).not.toHaveClass("text-zinc-400");
+    expect(flagEl.textContent).not.toContain("(provisional)");
+  });
+
+  it("renders a provisional flag muted, with a '(provisional)' suffix", () => {
+    render(<RobustnessResultView result={BULL_CONCENTRATION_PROVISIONAL_RESULT} />);
+    const flagEl = screen.getByTestId("stat-marginal-bull_concentration");
+    expect(flagEl).toHaveClass("text-zinc-400");
+    expect(flagEl).not.toHaveClass("text-amber-700");
+    expect(flagEl.textContent).toContain("(provisional)");
+  });
+
+  it("renders the excess margin as '+X.X pp vs benchmark' matching the fixture verbatim, with no client-side rounding/recomputation beyond display formatting", () => {
+    if (BULL_CONCENTRATION_CONFIRMED_RESULT.kind !== "full") throw new Error("fixture is not a full result");
+    render(<RobustnessResultView result={BULL_CONCENTRATION_CONFIRMED_RESULT} />);
+    const excess = BULL_CONCENTRATION_CONFIRMED_RESULT.regime.marginal_flags[0]!.excess;
+    const expectedText = `+${(excess * 100).toFixed(1)} pp vs benchmark`;
+    expect(screen.getByTestId("stat-marginal-bull_concentration")).toHaveTextContent(expectedText);
+  });
+
+  it("reads the confidence field as-is and never re-thresholds excess itself", () => {
+    // Controlled mutation of a REAL fixture, not a fabricated payload: the
+    // confirmed fixture's excess (0.3012) is well past
+    // MARGINAL_BULL_EXCESS_CONFIRMED_THRESHOLD (0.20) -- if the component
+    // were re-deriving confidence from excess instead of reading the
+    // backend's `confidence` field, overriding ONLY that field to
+    // "provisional" would have no visible effect, since the excess value
+    // still says "confirmed". Asserting the muted/provisional render wins
+    // proves the client never re-thresholds.
+    if (BULL_CONCENTRATION_CONFIRMED_RESULT.kind !== "full") throw new Error("fixture is not a full result");
+    const mutatedRegime = {
+      ...BULL_CONCENTRATION_CONFIRMED_RESULT.regime,
+      marginal_flags: [{ ...BULL_CONCENTRATION_CONFIRMED_RESULT.regime.marginal_flags[0]!, confidence: "provisional" as const }],
+    };
+
+    render(
+      <RobustnessPanel
+        sensitivity={BULL_CONCENTRATION_CONFIRMED_RESULT.sensitivity}
+        walkForward={BULL_CONCENTRATION_CONFIRMED_RESULT.walk_forward}
+        deflatedSharpe={BULL_CONCENTRATION_CONFIRMED_RESULT.deflated_sharpe}
+        regime={mutatedRegime}
+      />,
+    );
+
+    const flagEl = screen.getByTestId("stat-marginal-bull_concentration");
+    expect(flagEl).toHaveClass("text-zinc-400");
+    expect(flagEl).not.toHaveClass("text-amber-700");
+    expect(flagEl.textContent).toContain("(provisional)");
   });
 });
