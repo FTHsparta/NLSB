@@ -84,8 +84,12 @@ npm install
 npm run dev
 ```
 
-(Strategy input UI arrives in Phase 6 — for now this is the default Next.js +
-Tailwind v4 + TypeScript scaffold from `create-next-app`.)
+Visit `http://localhost:3000` with the backend (above) also running --
+`next.config.ts` rewrites `/translate`, `/correct`, and `/confirm` to the
+backend at `http://127.0.0.1:8000` (override with the `BACKEND_ORIGIN` env
+var), so the browser only ever talks to one origin and the backend needs
+no CORS config. A real `/translate` call needs `ANTHROPIC_API_KEY` set in
+`backend/.env` (see `.env.example`).
 
 > **Git Bash / some shells:** if `npm run <script>` fails with
 > `ERR_INVALID_ARG_TYPE: The "file" argument must be of type string. Received undefined`,
