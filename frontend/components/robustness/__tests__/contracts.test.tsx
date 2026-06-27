@@ -165,18 +165,22 @@ describe("CONTRACT 4: displayed figures equal the result object's figures verbat
  */
 describe("CONTRACT 5: marginal bull-concentration flag renders, not just fires", () => {
   it("renders a confirmed flag at full prominence, with no '(provisional)' suffix", () => {
+    // Phase 7 retired the amber/zinc color tokens this assertion originally
+    // checked (a per-check saturated color, forbidden under the strict
+    // monochrome rule) in favor of weight-only prominence -- the contract
+    // (confirmed is bolder/brighter than provisional) is unchanged.
     render(<RobustnessResultView result={BULL_CONCENTRATION_CONFIRMED_RESULT} />);
     const flagEl = screen.getByTestId("stat-marginal-bull_concentration");
-    expect(flagEl).toHaveClass("text-amber-700");
-    expect(flagEl).not.toHaveClass("text-zinc-400");
+    expect(flagEl).toHaveClass("text-foreground");
+    expect(flagEl).not.toHaveClass("text-muted-foreground");
     expect(flagEl.textContent).not.toContain("(provisional)");
   });
 
   it("renders a provisional flag muted, with a '(provisional)' suffix", () => {
     render(<RobustnessResultView result={BULL_CONCENTRATION_PROVISIONAL_RESULT} />);
     const flagEl = screen.getByTestId("stat-marginal-bull_concentration");
-    expect(flagEl).toHaveClass("text-zinc-400");
-    expect(flagEl).not.toHaveClass("text-amber-700");
+    expect(flagEl).toHaveClass("text-muted-foreground");
+    expect(flagEl).not.toHaveClass("text-foreground");
     expect(flagEl.textContent).toContain("(provisional)");
   });
 
@@ -213,8 +217,8 @@ describe("CONTRACT 5: marginal bull-concentration flag renders, not just fires",
     );
 
     const flagEl = screen.getByTestId("stat-marginal-bull_concentration");
-    expect(flagEl).toHaveClass("text-zinc-400");
-    expect(flagEl).not.toHaveClass("text-amber-700");
+    expect(flagEl).toHaveClass("text-muted-foreground");
+    expect(flagEl).not.toHaveClass("text-foreground");
     expect(flagEl.textContent).toContain("(provisional)");
   });
 });

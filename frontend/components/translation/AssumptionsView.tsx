@@ -33,12 +33,12 @@ export function AssumptionsView({ restatement, assumptions }: AssumptionsViewPro
   return (
     <div data-testid="assumptions-view" className="space-y-6 text-sm">
       <section data-testid="strategy-summary">
-        <pre className="whitespace-pre-wrap font-sans text-zinc-800 dark:text-zinc-200">{strategy}</pre>
+        <pre className="whitespace-pre-wrap font-sans text-foreground">{strategy}</pre>
       </section>
 
       <section data-testid="you-specified-section">
-        <h3 className="font-medium text-zinc-700 dark:text-zinc-300">You specified</h3>
-        <pre className="mt-2 whitespace-pre-wrap font-sans text-zinc-600 dark:text-zinc-400">{youSpecified}</pre>
+        <h3 className="font-medium text-foreground">You specified</h3>
+        <pre className="mt-2 whitespace-pre-wrap font-sans text-muted-foreground">{youSpecified}</pre>
       </section>
 
       {warnings.length > 0 && (
@@ -50,15 +50,15 @@ export function AssumptionsView({ restatement, assumptions }: AssumptionsViewPro
       )}
 
       <section data-testid="note-assumptions-section">
-        <h3 className="font-medium text-zinc-700 dark:text-zinc-300">I assumed</h3>
+        <h3 className="font-medium text-foreground">I assumed</h3>
         {notes.length === 0 ? (
-          <p className="mt-2 text-zinc-500 dark:text-zinc-500">(nothing routine left to assume)</p>
+          <p className="mt-2 text-muted-foreground">(nothing routine left to assume)</p>
         ) : (
-          <ul className="mt-2 space-y-1 text-zinc-600 dark:text-zinc-400">
+          <ul className="mt-2 space-y-1 text-muted-foreground">
             {notes.map((a, i) => (
               <li key={i} data-testid="assumption-note">
-                <span className="font-medium">{a.field}</span>: {formatAssumptionValue(a.value)} &mdash;{" "}
-                {a.reason}
+                <span className="font-medium text-foreground">{a.field}</span>: {formatAssumptionValue(a.value)}{" "}
+                &mdash; {a.reason}
               </li>
             ))}
           </ul>
@@ -68,14 +68,19 @@ export function AssumptionsView({ restatement, assumptions }: AssumptionsViewPro
   );
 }
 
+/**
+ * Distinct from an ordinary note row by PROMINENCE (a heavier border, a
+ * filled background, near-white text) rather than by color -- per this
+ * phase's strict palette rule, even a backend-flagged severity doesn't
+ * get a saturated hue. `role="alert"` and its own testid (asserted by
+ * Phase 5b/6's contract tests) still make it structurally unmistakable.
+ */
 function WarningAssumption({ assumption }: { assumption: Assumption }) {
   return (
-    <div
-      role="alert"
-      data-testid="assumption-warning"
-      className="rounded-md border-2 border-amber-500 bg-amber-50 p-4 text-amber-900 dark:bg-amber-950 dark:text-amber-200"
-    >
-      <p className="font-semibold uppercase tracking-wide text-xs">Heads up &mdash; this changes what the result means</p>
+    <div role="alert" data-testid="assumption-warning" className="rounded-lg border-2 border-foreground/40 bg-muted p-4 text-foreground">
+      <p className="text-xs font-semibold uppercase tracking-wide text-foreground">
+        Heads up &mdash; this changes what the result means
+      </p>
       <p className="mt-1" data-testid="assumption-warning-reason">
         {assumption.reason}
       </p>

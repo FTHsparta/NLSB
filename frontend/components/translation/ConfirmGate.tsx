@@ -20,9 +20,9 @@ export function ConfirmGate({ defaultTicker, onConfirm, disabled }: ConfirmGateP
   const [end, setEnd] = useState("");
 
   return (
-    <div data-testid="confirm-gate" className="mt-6 space-y-3 rounded-md border border-zinc-300 p-4 dark:border-zinc-700">
-      <p className="text-sm text-zinc-600 dark:text-zinc-400">
-        Backtest window for <span className="font-medium">{defaultTicker}</span>:
+    <div data-testid="confirm-gate" className="mt-6 space-y-4 rounded-lg border border-border bg-card p-6">
+      <p className="text-sm text-muted-foreground">
+        Backtest window for <span className="font-medium text-foreground">{defaultTicker}</span>:
       </p>
       <div className="flex gap-3">
         <input
@@ -30,7 +30,7 @@ export function ConfirmGate({ defaultTicker, onConfirm, disabled }: ConfirmGateP
           type="date"
           value={start}
           onChange={(e) => setStart(e.target.value)}
-          className="rounded-md border border-zinc-300 px-2 py-1 text-sm dark:border-zinc-700 dark:bg-zinc-900"
+          className="rounded-md border border-input bg-background px-2 py-1 text-sm text-foreground"
         />
         <input
           data-testid="confirm-end-date"
@@ -38,7 +38,7 @@ export function ConfirmGate({ defaultTicker, onConfirm, disabled }: ConfirmGateP
           value={end}
           onChange={(e) => setEnd(e.target.value)}
           placeholder="(optional) end date"
-          className="rounded-md border border-zinc-300 px-2 py-1 text-sm dark:border-zinc-700 dark:bg-zinc-900"
+          className="rounded-md border border-input bg-background px-2 py-1 text-sm text-foreground"
         />
       </div>
       <button
@@ -46,7 +46,7 @@ export function ConfirmGate({ defaultTicker, onConfirm, disabled }: ConfirmGateP
         data-testid="confirm-run-button"
         disabled={disabled}
         onClick={() => onConfirm(start, end || null)}
-        className="rounded-md bg-emerald-700 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+        className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50"
       >
         Confirm and run backtest
       </button>

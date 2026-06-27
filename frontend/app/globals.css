@@ -1,26 +1,90 @@
 @import "tailwindcss";
 
+/**
+ * Dark, monochrome by default -- not a `prefers-color-scheme` toggle. This
+ * tool's design direction is Bloomberg-terminal restraint: there is no
+ * light theme to fall back to, so `:root` IS the (only) dark palette.
+ *
+ * Every token here except the four `--verdict-*` ones is monochrome
+ * (charcoal/gray/white only, no hue). The verdict tokens are the ONE
+ * saturated color on the entire screen -- referenced ONLY by
+ * `VerdictCard.tsx`'s static enum lookup, never by any other component,
+ * and never selected by a client-side numeric comparison. See
+ * `VerdictCard.tsx` and `tests/visual/color-invariants.test.tsx`.
+ */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: 240 6% 8%;
+  --foreground: 0 0% 96%;
+
+  --card: 240 5% 11%;
+  --card-foreground: 0 0% 96%;
+
+  --popover: 240 5% 11%;
+  --popover-foreground: 0 0% 96%;
+
+  --muted: 240 5% 14%;
+  --muted-foreground: 240 5% 60%;
+
+  --border: 240 5% 18%;
+  --input: 240 5% 18%;
+
+  /* Intentionally NOT a brand color -- a muted monochrome so shadcn-style
+     default component accents (focus rings, primary buttons) stay
+     colorless, same as everything else outside the verdict card. */
+  --primary: 0 0% 90%;
+  --primary-foreground: 240 6% 8%;
+  --accent: 240 5% 14%;
+  --accent-foreground: 0 0% 96%;
+
+  --radius: 0.625rem;
+
+  /* Verdict palette. Selected by `VerdictCard.tsx`'s static
+     `Record<Verdict, ...>` lookup keyed on the backend's verdict enum
+     string -- never by a threshold computed in this codebase. */
+  --verdict-pass: 142 71% 45%;
+  --verdict-shaky: 38 92% 50%;
+  --verdict-overfit: 0 72% 51%;
+  /* Deliberately NOT a judgment hue: "we can't tell you, honestly" hasn't
+     earned green/amber/red. Full prominence, neutral color. */
+  --verdict-untestable: 240 5% 45%;
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
+  --color-background: hsl(var(--background));
+  --color-foreground: hsl(var(--foreground));
+
+  --color-card: hsl(var(--card));
+  --color-card-foreground: hsl(var(--card-foreground));
+
+  --color-popover: hsl(var(--popover));
+  --color-popover-foreground: hsl(var(--popover-foreground));
+
+  --color-muted: hsl(var(--muted));
+  --color-muted-foreground: hsl(var(--muted-foreground));
+
+  --color-border: hsl(var(--border));
+  --color-input: hsl(var(--input));
+
+  --color-primary: hsl(var(--primary));
+  --color-primary-foreground: hsl(var(--primary-foreground));
+  --color-accent: hsl(var(--accent));
+  --color-accent-foreground: hsl(var(--accent-foreground));
+
+  --color-verdict-pass: hsl(var(--verdict-pass));
+  --color-verdict-shaky: hsl(var(--verdict-shaky));
+  --color-verdict-overfit: hsl(var(--verdict-overfit));
+  --color-verdict-untestable: hsl(var(--verdict-untestable));
+
+  --radius-lg: var(--radius);
+  --radius-md: calc(var(--radius) - 0.125rem);
+  --radius-sm: calc(var(--radius) - 0.25rem);
+
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background-color: hsl(var(--background));
+  color: hsl(var(--foreground));
+  font-family: var(--font-sans), system-ui, -apple-system, sans-serif;
 }

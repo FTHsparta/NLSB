@@ -27,14 +27,14 @@ export function TranslateInputView({ onSubmit, disabled }: TranslateInputViewPro
         onChange={(e) => setText(e.target.value)}
         disabled={disabled}
         placeholder="Describe your strategy in plain English, e.g. 'Buy SPY when RSI(14) drops below 30, sell when it rises above 70.'"
-        className="w-full rounded-md border border-zinc-300 p-3 text-sm dark:border-zinc-700 dark:bg-zinc-900"
+        className="w-full rounded-lg border border-input bg-card p-3 text-sm text-foreground placeholder:text-muted-foreground"
         rows={4}
       />
       <button
         type="submit"
         data-testid="translate-submit"
         disabled={disabled || !text.trim()}
-        className="rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-50 dark:bg-zinc-50 dark:text-zinc-950"
+        className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50"
       >
         Translate
       </button>

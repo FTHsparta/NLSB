@@ -142,49 +142,52 @@ export function TranslateFlow({ api = httpTranslationApi }: TranslateFlowProps) 
   const atGate = state.translation?.status === "ok" && !!state.translation.restatement && state.phase !== "results";
 
   return (
-    <div data-testid="translate-flow" className="mx-auto max-w-2xl space-y-6 p-6">
-      {state.error?.action === "translate" && (
-        <p data-testid="translate-error" role="alert" className="text-red-600">
-          {state.error.message}
-        </p>
-      )}
+    <div data-testid="translate-flow" className="mx-auto max-w-2xl space-y-8 p-6">
+      {state.error?.action === "translate" && <ErrorBanner testId="translate-error" message={state.error.message} />}
 
       {state.phase !== "results" && (
         <TranslateInputView onSubmit={handleTranslate} disabled={isTranslating} />
       )}
 
       {atGate && (
-        <>
+        <div className="space-y-8">
           <AssumptionsView restatement={state.translation!.restatement!} assumptions={state.translation!.assumptions} />
 
-          {state.error?.action === "correct" && (
-            <p data-testid="correct-error" role="alert" className="text-red-600">
-              {state.error.message}
-            </p>
-          )}
+          {state.error?.action === "correct" && <ErrorBanner testId="correct-error" message={state.error.message} />}
           <CorrectionBox onSubmit={handleCorrect} disabled={isCorrecting} />
 
-          {state.error?.action === "confirm" && (
-            <p data-testid="confirm-error" role="alert" className="text-red-600">
-              {state.error.message}
-            </p>
-          )}
+          {state.error?.action === "confirm" && <ErrorBanner testId="confirm-error" message={state.error.message} />}
           <ConfirmGate
             defaultTicker={(state.translation!.ir?.asset as { ticker: string })?.ticker ?? ""}
             onConfirm={handleConfirm}
             disabled={isConfirming}
           />
-        </>
+        </div>
       )}
 
       {state.phase !== "results" && state.translation && state.translation.status !== "ok" && (
-        <p data-testid="translate-flow-message" className="text-zinc-700 dark:text-zinc-300">
+        <p data-testid="translate-flow-message" className="text-foreground">
           {state.translation.message}
         </p>
       )}
 
       {state.phase === "results" && state.result && <RobustnessResultView result={state.result} />}
     </div>
+  );
+}
+
+/**
+ * Monochrome by design, same as everything outside `VerdictCard` -- a
+ * failed network call is a UI-level fact, not a judgment about the
+ * strategy, but the strict palette rule for this phase draws no
+ * exception for it. Prominence (border, filled background, near-white
+ * text) carries the "something went wrong" weight instead of color.
+ */
+function ErrorBanner({ testId, message }: { testId: string; message: string }) {
+  return (
+    <p data-testid={testId} role="alert" className="rounded-lg border-2 border-foreground/40 bg-muted p-4 text-foreground">
+      {message}
+    </p>
   );
 }
 
@@ -208,14 +211,14 @@ function CorrectionBox({ onSubmit, disabled }: { onSubmit: (text: string) => voi
         onChange={(e) => setText(e.target.value)}
         disabled={disabled}
         placeholder="Something wrong? Describe the correction in plain text."
-        className="w-full rounded-md border border-zinc-300 p-2 text-sm dark:border-zinc-700 dark:bg-zinc-900"
+        className="w-full rounded-lg border border-input bg-card p-2 text-sm text-foreground placeholder:text-muted-foreground"
         rows={2}
       />
       <button
         type="submit"
         data-testid="correction-submit"
         disabled={disabled || !text.trim()}
-        className="rounded-md border border-zinc-400 px-3 py-1.5 text-sm disabled:opacity-50"
+        className="rounded-md border border-border px-3 py-1.5 text-sm text-foreground disabled:opacity-50"
       >
         Submit correction
       </button>
