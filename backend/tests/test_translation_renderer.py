@@ -56,7 +56,7 @@ def test_renderer_stated_section_excludes_assumed_exit():
     text = render_confirmation(full_ir, assumptions)
     # exit was explicitly stated in this fixture -> should be in "You specified"
     you_specified, _, i_assumed = text.partition("I assumed")
-    assert "exit condition" in you_specified
+    assert "Exit condition" in you_specified
     assert "- exit:" not in i_assumed
 
 

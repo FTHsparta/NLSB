@@ -131,7 +131,7 @@ describe("INTEGRATION: happy path -- idle to a rendered verdict, through real fe
     const user = await typeAndTranslate();
 
     await waitFor(() => expect(screen.getByTestId("assumptions-view")).toBeInTheDocument());
-    expect(screen.getByTestId("you-specified-section")).toHaveTextContent("ticker: SPY");
+    expect(screen.getByTestId("you-specified-section")).toHaveTextContent("Ticker: SPY");
     expect(screen.getByTestId("confirm-gate")).toBeInTheDocument();
 
     await user.click(screen.getByTestId("confirm-run-button"));

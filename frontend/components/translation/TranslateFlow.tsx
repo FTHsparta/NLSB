@@ -150,18 +150,38 @@ export function TranslateFlow({ api = httpTranslationApi }: TranslateFlowProps) 
       )}
 
       {atGate && (
-        <div className="space-y-8">
+        <div data-testid="gate" className="space-y-8">
+          <header className="space-y-1 border-b border-border pb-6">
+            <h2 className="text-xl font-semibold text-foreground">Review before you run it</h2>
+            <p className="text-sm text-muted-foreground">
+              Nothing has run yet. Check what you stated against what the system assumed,
+              then confirm below to run the backtest.
+            </p>
+          </header>
+
           <AssumptionsView restatement={state.translation!.restatement!} assumptions={state.translation!.assumptions} />
 
-          {state.error?.action === "correct" && <ErrorBanner testId="correct-error" message={state.error.message} />}
-          <CorrectionBox onSubmit={handleCorrect} disabled={isCorrecting} />
+          <div className="space-y-4 border-t border-border pt-6">
+            <header className="space-y-1">
+              <h3 className="text-lg font-semibold text-foreground">Ready to run this backtest?</h3>
+              <p className="text-sm text-muted-foreground">
+                Confirm to run it exactly as stated above, or describe a correction first.
+              </p>
+            </header>
 
-          {state.error?.action === "confirm" && <ErrorBanner testId="confirm-error" message={state.error.message} />}
-          <ConfirmGate
-            defaultTicker={(state.translation!.ir?.asset as { ticker: string })?.ticker ?? ""}
-            onConfirm={handleConfirm}
-            disabled={isConfirming}
-          />
+            {state.error?.action === "confirm" && <ErrorBanner testId="confirm-error" message={state.error.message} />}
+            <ConfirmGate
+              defaultTicker={(state.translation!.ir?.asset as { ticker: string })?.ticker ?? ""}
+              onConfirm={handleConfirm}
+              disabled={isConfirming}
+            />
+
+            <div className="space-y-2">
+              <p className="text-sm font-medium text-foreground">Not right? Correct it instead.</p>
+              {state.error?.action === "correct" && <ErrorBanner testId="correct-error" message={state.error.message} />}
+              <CorrectionBox onSubmit={handleCorrect} disabled={isCorrecting} />
+            </div>
+          </div>
         </div>
       )}
 

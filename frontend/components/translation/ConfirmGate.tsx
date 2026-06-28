@@ -46,9 +46,9 @@ export function ConfirmGate({ defaultTicker, onConfirm, disabled }: ConfirmGateP
         data-testid="confirm-run-button"
         disabled={disabled}
         onClick={() => onConfirm(start, end || null)}
-        className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50"
+        className="rounded-md bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground disabled:opacity-50"
       >
-        Confirm and run backtest
+        Run this backtest
       </button>
     </div>
   );

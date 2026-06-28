@@ -96,25 +96,24 @@ describe("INV-1: verdict accent is selected solely by the verdict enum string, v
   });
 });
 
-describe("INV-A: SEVERITY_WARNING renders at structurally higher prominence than a standard assumption row, by weight/size/space, never by hue", () => {
-  it("the warning headline carries heavier weight and a larger size than a note row's text, plus a set-apart border and padding", () => {
+describe("INV-A / INV-B: SEVERITY_WARNING renders within 'I assumed', at structurally higher prominence than a standard assumption row, by weight/size/space, never by hue", () => {
+  it("the warning carries its own prominence classes -- bold headline, a set-apart left rule, generous padding, full foreground -- asserted positively so a future style pass on note rows can't break this by coincidence", () => {
     render(<AssumptionsView restatement={NO_EXIT_WARNING.restatement!} assumptions={NO_EXIT_WARNING.assumptions} />);
 
     const warning = screen.getByTestId("assumption-warning");
-    const note = screen.getAllByTestId("assumption-note")[0];
 
-    // Heavier weight: the warning's headline carries bold/semibold; a
-    // plain note row never does (it inherits muted, regular-weight text).
+    // The warning is INSIDE "I assumed" -- it is an assumption, the most
+    // important one, not a fourth floating element outside the structure.
+    expect(screen.getByTestId("note-assumptions-section")).toContainElement(warning);
+
+    // Positive assertions on the warning's own classes (never "a neighbor
+    // lacks this") -- so a later styling pass on ordinary note rows can't
+    // accidentally satisfy this test by coincidence, the way the prior
+    // (neighbor-relative) version of this assertion just did when note
+    // rows picked up their own padding as part of this phase's layout.
     expect(warning.innerHTML).toMatch(/font-bold/);
-    expect(note.className).not.toMatch(/font-bold|font-semibold/);
-
-    // Set apart by a rule + generous padding, not merely the same box a
-    // note row sits in (notes have no border/padding of their own at all).
     expect(warning.className).toMatch(/border-l-4/);
     expect(warning.className).toMatch(/p-6/);
-    expect(note.className).toBe("");
-
-    // Full foreground, not the muted tone the surrounding note list uses.
     expect(warning.className).toMatch(/text-foreground/);
     expect(warning.className).not.toMatch(/text-muted-foreground/);
 

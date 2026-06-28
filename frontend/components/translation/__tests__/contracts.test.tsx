@@ -91,9 +91,46 @@ describe("CONTRACT 4: displayed assumption/restatement text equals renderer.py's
     render(<AssumptionsView restatement={ORDINARY.restatement!} assumptions={ORDINARY.assumptions} />);
     const youSpecified = screen.getByTestId("you-specified-section");
     // The backend's "You specified" list items must appear verbatim.
-    expect(youSpecified.textContent).toContain("ticker: SPY");
-    expect(youSpecified.textContent).toContain("entry condition");
-    expect(youSpecified.textContent).toContain("exit condition");
+    expect(youSpecified.textContent).toContain("Ticker: SPY");
+    expect(youSpecified.textContent).toContain("Entry condition");
+    expect(youSpecified.textContent).toContain("Exit condition");
+  });
+});
+
+describe("CONTRACT 6 (INV-A): the gate's layout honors the backend's stated-vs-assumed split -- it lays the categorization out, it never re-derives it", () => {
+  it("every stated item renders under 'You specified' and every assumption's field renders under 'I assumed', with no crossover", () => {
+    render(<AssumptionsView restatement={ORDINARY.restatement!} assumptions={ORDINARY.assumptions} />);
+
+    const youSpecified = screen.getByTestId("you-specified-section");
+    const iAssumed = screen.getByTestId("note-assumptions-section");
+
+    expect(youSpecified).toHaveTextContent("Ticker: SPY");
+    expect(youSpecified).toHaveTextContent("Entry condition");
+    expect(youSpecified).toHaveTextContent("Exit condition");
+
+    for (const a of ORDINARY.assumptions) {
+      // Every assumption the backend produced lands in "I assumed" ...
+      expect(iAssumed).toHaveTextContent(a.field);
+      // ... and never duplicates into "You specified" -- the frontend
+      // never moves an item between the backend's two buckets.
+      expect(youSpecified).not.toHaveTextContent(a.field);
+    }
+
+    // Nothing stated leaks the other way either.
+    expect(iAssumed).not.toHaveTextContent("Entry condition");
+    expect(iAssumed).not.toHaveTextContent("Exit condition");
+  });
+
+  it("the SEVERITY_WARNING assumption renders INSIDE 'I assumed', elevated but not floated outside the stated/assumed structure", () => {
+    render(<AssumptionsView restatement={NO_EXIT_WARNING.restatement!} assumptions={NO_EXIT_WARNING.assumptions} />);
+
+    const iAssumed = screen.getByTestId("note-assumptions-section");
+    const warning = screen.getByTestId("assumption-warning");
+    expect(iAssumed).toContainElement(warning);
+
+    // It's still categorized as an assumption, not a stated item.
+    const youSpecified = screen.getByTestId("you-specified-section");
+    expect(youSpecified).not.toContainElement(warning);
   });
 });
 

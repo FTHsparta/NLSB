@@ -100,13 +100,18 @@ def _stated_summary(
 ) -> list[str]:
     stated: list[str] = []
     asset = full_ir["asset"]
-    stated.append(f"ticker: {asset['ticker']}")
+    # Fixed-label fragments get sentence-case, same discipline as the
+    # Assumption.reason strings. The indicator summary line below is NOT
+    # touched the same way: it leads with `ind_id`, a free-form identifier
+    # the translator/user chose (e.g. "rsi14"), not a fixed English word --
+    # capitalizing it would alter that identifier's text, not just its case.
+    stated.append(f"Ticker: {asset['ticker']}")
     if "asset.asset_class" not in assumed_fields:
-        stated.append(f"asset class: {asset['asset_class']}")
+        stated.append(f"Asset class: {asset['asset_class']}")
 
-    stated.append("entry condition")
+    stated.append("Entry condition")
     if "exit" not in assumed_fields:
-        stated.append("exit condition")
+        stated.append("Exit condition")
 
     for ind_id, ind in indicators_by_id.items():
         prefix = f"indicators.{ind_id}."
@@ -116,14 +121,14 @@ def _stated_summary(
             )
 
     if "position.direction" not in assumed_fields and "position.size" not in assumed_fields:
-        stated.append("position sizing")
+        stated.append("Position sizing")
 
     risk = full_ir.get("risk")
     if risk is not None and "risk" not in assumed_fields:
         if "risk.stop_loss_pct" not in assumed_fields and risk.get("stop_loss_pct") is not None:
-            stated.append("stop-loss")
+            stated.append("Stop-loss")
         if "risk.take_profit_pct" not in assumed_fields and risk.get("take_profit_pct") is not None:
-            stated.append("take-profit")
+            stated.append("Take-profit")
 
     return stated
 
