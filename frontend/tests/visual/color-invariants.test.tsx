@@ -96,6 +96,35 @@ describe("INV-1: verdict accent is selected solely by the verdict enum string, v
   });
 });
 
+describe("INV-A: SEVERITY_WARNING renders at structurally higher prominence than a standard assumption row, by weight/size/space, never by hue", () => {
+  it("the warning headline carries heavier weight and a larger size than a note row's text, plus a set-apart border and padding", () => {
+    render(<AssumptionsView restatement={NO_EXIT_WARNING.restatement!} assumptions={NO_EXIT_WARNING.assumptions} />);
+
+    const warning = screen.getByTestId("assumption-warning");
+    const note = screen.getAllByTestId("assumption-note")[0];
+
+    // Heavier weight: the warning's headline carries bold/semibold; a
+    // plain note row never does (it inherits muted, regular-weight text).
+    expect(warning.innerHTML).toMatch(/font-bold/);
+    expect(note.className).not.toMatch(/font-bold|font-semibold/);
+
+    // Set apart by a rule + generous padding, not merely the same box a
+    // note row sits in (notes have no border/padding of their own at all).
+    expect(warning.className).toMatch(/border-l-4/);
+    expect(warning.className).toMatch(/p-6/);
+    expect(note.className).toBe("");
+
+    // Full foreground, not the muted tone the surrounding note list uses.
+    expect(warning.className).toMatch(/text-foreground/);
+    expect(warning.className).not.toMatch(/text-muted-foreground/);
+
+    // No saturated hue anywhere in the warning -- prominence is weight and
+    // space, never color (INV-2 covers this too; re-asserted here as the
+    // same invariant from the prominence angle).
+    expect(warning.className).not.toMatch(SATURATED_COLOR_CLASS);
+  });
+});
+
 describe("INV-2: the verdict palette is referenced ONLY by VerdictCard -- no other component applies a saturated color", () => {
   it("RobustnessPanel renders a CONFIRMED bull-concentration flag with no saturated color and no verdict-* token", () => {
     render(

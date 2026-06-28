@@ -77,11 +77,15 @@ export function AssumptionsView({ restatement, assumptions }: AssumptionsViewPro
  */
 function WarningAssumption({ assumption }: { assumption: Assumption }) {
   return (
-    <div role="alert" data-testid="assumption-warning" className="rounded-lg border-2 border-foreground/40 bg-muted p-4 text-foreground">
-      <p className="text-xs font-semibold uppercase tracking-wide text-foreground">
+    <div
+      role="alert"
+      data-testid="assumption-warning"
+      className="rounded-lg border-l-4 border-foreground bg-muted p-6 text-foreground"
+    >
+      <p className="text-base font-bold uppercase tracking-wide text-foreground">
         Heads up &mdash; this changes what the result means
       </p>
-      <p className="mt-1" data-testid="assumption-warning-reason">
+      <p className="mt-2 text-base font-medium text-foreground" data-testid="assumption-warning-reason">
         {assumption.reason}
       </p>
     </div>

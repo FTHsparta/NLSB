@@ -103,7 +103,7 @@ def _default_asset(ir: dict, assumptions: list[Assumption]) -> None:
             Assumption(
                 field="asset.asset_class",
                 value=DEFAULT_ASSET_CLASS,
-                reason="asset class not stated; defaulted to equity",
+                reason="Asset class not stated; defaulted to equity.",
             )
         )
     ir["asset"] = asset
@@ -126,7 +126,7 @@ def _default_indicators(ir: dict, assumptions: list[Assumption]) -> None:
                 Assumption(
                     field=f"indicators.{ind_id}.source",
                     value=DEFAULT_INDICATOR_SOURCE,
-                    reason=f"source price field for {ind_id} not stated; defaulted to close",
+                    reason=f"Source price field for {ind_id} not stated; defaulted to close.",
                 )
             )
 
@@ -143,8 +143,8 @@ def _default_indicators(ir: dict, assumptions: list[Assumption]) -> None:
                 Assumption(
                     field=f"indicators.{ind_id}.params.period",
                     value=default_period,
-                    reason=f"period for {ind_type} indicator {ind_id} not stated; "
-                    f"defaulted to {default_period}",
+                    reason=f"Period for {ind_type} indicator {ind_id} not stated; "
+                    f"defaulted to {default_period}.",
                 )
             )
         ind["params"] = params
@@ -166,10 +166,10 @@ def _default_exit(ir: dict, assumptions: list[Assumption]) -> None:
             Assumption(
                 field="exit",
                 value=NO_EXIT_CONDITION,
-                reason="no exit condition stated; position is never explicitly "
+                reason="No exit condition stated; position is never explicitly "
                 "closed by a signal — held from first entry to the end of the "
                 "test window, which approximates buy-and-hold from that date "
-                "rather than a round-trip strategy",
+                "rather than a round-trip strategy.",
                 severity=SEVERITY_WARNING,
             )
         )
@@ -183,7 +183,7 @@ def _default_position(ir: dict, assumptions: list[Assumption]) -> None:
             Assumption(
                 field="position.direction",
                 value=DEFAULT_POSITION_DIRECTION,
-                reason="position direction not stated; defaulted to long (v1 is long-only)",
+                reason="Position direction not stated; defaulted to long (v1 is long-only).",
             )
         )
     if not position.get("size"):
@@ -192,7 +192,7 @@ def _default_position(ir: dict, assumptions: list[Assumption]) -> None:
             Assumption(
                 field="position.size",
                 value=DEFAULT_POSITION_SIZE,
-                reason="position sizing not stated; defaulted to full capital per trade",
+                reason="Position sizing not stated; defaulted to full capital per trade.",
             )
         )
     ir["position"] = position
@@ -206,7 +206,7 @@ def _default_risk(ir: dict, assumptions: list[Assumption]) -> None:
             Assumption(
                 field="risk",
                 value=None,
-                reason="no stop-loss/take-profit stated; defaulted to none",
+                reason="No stop-loss/take-profit stated; defaulted to none.",
             )
         )
         return
@@ -217,7 +217,7 @@ def _default_risk(ir: dict, assumptions: list[Assumption]) -> None:
             Assumption(
                 field="risk.stop_loss_pct",
                 value=None,
-                reason="no stop-loss stated; defaulted to none",
+                reason="No stop-loss stated; defaulted to none.",
             )
         )
     if "take_profit_pct" not in risk:
@@ -226,7 +226,7 @@ def _default_risk(ir: dict, assumptions: list[Assumption]) -> None:
             Assumption(
                 field="risk.take_profit_pct",
                 value=None,
-                reason="no take-profit stated; defaulted to none",
+                reason="No take-profit stated; defaulted to none.",
             )
         )
     ir["risk"] = risk
