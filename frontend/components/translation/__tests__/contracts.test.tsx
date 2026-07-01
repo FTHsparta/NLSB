@@ -12,6 +12,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { AssumptionsView } from "../AssumptionsView";
 import { TranslateFlow } from "../TranslateFlow";
+import { TranslateInputView } from "../TranslateInputView";
 import type { TranslationApi } from "@/lib/translation/api";
 import type { TranslationPayload } from "@/lib/translation/types";
 import type { RobustnessResult } from "@/lib/robustness/types";
@@ -196,5 +197,128 @@ describe("CONTRACT 5: gate integrity -- results view unreachable without an expl
     expect(screen.queryByTestId("assumptions-view")).not.toBeInTheDocument();
     expect(screen.queryByTestId("confirm-gate")).not.toBeInTheDocument();
     expect(screen.queryByTestId("robustness-result-view")).not.toBeInTheDocument();
+  });
+});
+
+describe("CONTRACT 7: example strategy chips prefill the textarea, never submit on their own", () => {
+  it("renders all 4 example chips", () => {
+    render(<TranslateInputView onSubmit={() => {}} />);
+    expect(screen.getAllByTestId("example-strategy")).toHaveLength(4);
+  });
+
+  it("clicking a chip prefills the textarea with that example's full strategy text", () => {
+    render(<TranslateInputView onSubmit={() => {}} />);
+    const chip = screen.getAllByTestId("example-strategy")[0];
+    const expectedText = chip.textContent;
+    fireEvent.click(chip);
+
+    const textarea = screen.getByTestId("nl-input") as HTMLTextAreaElement;
+    expect(textarea.value.length).toBeGreaterThan(0);
+    // The chip's own label is short ("Golden cross (SPY)"); the prefilled
+    // text is the full sentence -- they are never the same string, which
+    // also proves this isn't accidentally echoing the label itself.
+    expect(textarea.value).not.toBe(expectedText);
+    expect(textarea.value.endsWith(".")).toBe(true);
+  });
+
+  it("every chip is type=button, never type=submit -- clicking one must not submit the form", () => {
+    const onSubmit = vi.fn();
+    render(<TranslateInputView onSubmit={onSubmit} />);
+    for (const chip of screen.getAllByTestId("example-strategy")) {
+      expect(chip).toHaveAttribute("type", "button");
+    }
+    fireEvent.click(screen.getAllByTestId("example-strategy")[0]);
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it("chips are disabled when the parent passes disabled=true, same as the textarea/submit button", () => {
+    render(<TranslateInputView onSubmit={() => {}} disabled />);
+    for (const chip of screen.getAllByTestId("example-strategy")) {
+      expect(chip).toBeDisabled();
+    }
+  });
+});
+
+describe("CONTRACT 8: friendly error fallback -- a raw HTTP status never reaches the user as the visible message", () => {
+  function fakeApiThatRejects(action: "translate" | "confirm", error: Error) {
+    return fakeApi(
+      action === "translate"
+        ? { translate: vi.fn().mockRejectedValue(error) }
+        : { confirm: vi.fn().mockRejectedValue(error) },
+    );
+  }
+
+  it("a 500-style /translate failure shows friendly copy, not the raw '(500)' string, with the raw text tucked inside collapsed technical details", async () => {
+    const api = fakeApiThatRejects("translate", new Error("/translate failed (500): Anthropic API call failed"));
+    render(<TranslateFlow api={api} />);
+    fireEvent.change(screen.getByTestId("nl-input"), { target: { value: "buy SPY when RSI < 30" } });
+    fireEvent.click(screen.getByTestId("translate-submit"));
+
+    await waitFor(() => expect(screen.getByTestId("translate-error")).toBeInTheDocument());
+
+    const visibleMessage = screen.getByTestId("translate-error-message");
+    expect(visibleMessage.textContent).not.toMatch(/\(500\)/);
+    expect(visibleMessage.textContent).toMatch(/translating your strategy/i);
+    expect(visibleMessage.textContent).toMatch(/not a problem with your strategy/i);
+
+    // The raw text IS present, but only inside the collapsed disclosure --
+    // never as the visible headline message.
+    const detail = screen.getByTestId("translate-error-detail");
+    expect(detail.textContent).toContain("(500)");
+    expect(detail.closest("details")).not.toHaveAttribute("open");
+    expect(detail.textContent).not.toBe(visibleMessage.textContent);
+
+    // TRANSLATE_ERROR's load-bearing phase transition (-> idle) is
+    // preserved: the input view is still reachable, no gate mounted.
+    expect(screen.getByTestId("translate-input-view")).toBeInTheDocument();
+    expect(screen.queryByTestId("confirm-gate")).not.toBeInTheDocument();
+  });
+
+  it("a 500-style /confirm failure shows friendly copy and stays at the gate (CONFIRM_ERROR -> gate, never results)", async () => {
+    const api = fakeApiThatRejects("confirm", new Error("/confirm failed (500): backtest failed: insufficient price history"));
+    await translateInto(api);
+
+    fireEvent.click(screen.getByTestId("confirm-run-button"));
+    await waitFor(() => expect(screen.getByTestId("confirm-error")).toBeInTheDocument());
+
+    const visibleMessage = screen.getByTestId("confirm-error-message");
+    expect(visibleMessage.textContent).not.toMatch(/\(500\)/);
+    expect(visibleMessage.textContent).toMatch(/running the backtest/i);
+
+    const detail = screen.getByTestId("confirm-error-detail");
+    expect(detail.textContent).toContain("(500)");
+    expect(detail.textContent).not.toBe(visibleMessage.textContent);
+
+    // CONFIRM_ERROR's load-bearing phase transition (-> gate) is preserved.
+    expect(screen.getByTestId("confirm-gate")).toBeInTheDocument();
+    expect(screen.queryByTestId("robustness-result-view")).not.toBeInTheDocument();
+  });
+
+  it("a rejection with no HTTP status at all (a real network failure) shows the 'couldn't reach the service' copy", async () => {
+    const api = fakeApiThatRejects("translate", new Error("Failed to fetch"));
+    render(<TranslateFlow api={api} />);
+    fireEvent.change(screen.getByTestId("nl-input"), { target: { value: "buy SPY when RSI < 30" } });
+    fireEvent.click(screen.getByTestId("translate-submit"));
+
+    await waitFor(() => expect(screen.getByTestId("translate-error")).toBeInTheDocument());
+    const visibleMessage = screen.getByTestId("translate-error-message");
+    expect(visibleMessage.textContent).toMatch(/couldn't reach the service/i);
+    expect(visibleMessage.textContent).toMatch(/make sure it's running/i);
+  });
+
+  it("a 429 /correct failure is described as rate-limited, and CORRECT_ERROR's load-bearing transition (-> gate, prior translation intact) is preserved", async () => {
+    const api = fakeApi({
+      correct: vi.fn().mockRejectedValue(new Error("/correct failed (429): rate limited")),
+    });
+    await translateInto(api);
+
+    fireEvent.change(screen.getByTestId("correction-input"), { target: { value: "use RSI(20) instead" } });
+    fireEvent.click(screen.getByTestId("correction-submit"));
+
+    await waitFor(() => expect(screen.getByTestId("correct-error")).toBeInTheDocument());
+    expect(screen.getByTestId("correct-error-message").textContent).toMatch(/rate-limited/i);
+
+    // Stayed at the gate with the prior translation intact.
+    expect(screen.getByTestId("assumptions-view")).toBeInTheDocument();
   });
 });

@@ -10,6 +10,27 @@ export interface TranslateInputViewProps {
 const STRATEGY_PLACEHOLDER =
   "Buy SPY when RSI(14) drops below 30, sell when it rises above 70.";
 
+/** Beginner-friendly prefills -- each has a clean entry AND exit so none
+ * trips the missing-exit SEVERITY_WARNING when actually translated. */
+const EXAMPLE_STRATEGIES: { label: string; text: string }[] = [
+  {
+    label: "Golden cross (SPY)",
+    text: "Buy SPY when SMA(50) crosses above SMA(200), sell when SMA(50) crosses below SMA(200).",
+  },
+  {
+    label: "RSI mean reversion (QQQ)",
+    text: "Buy QQQ when RSI(14) drops below 30, sell when RSI(14) rises above 70.",
+  },
+  {
+    label: "200-day trend follow (AAPL)",
+    text: "Buy AAPL when close crosses above SMA(200), sell when close crosses below SMA(200).",
+  },
+  {
+    label: "20/50 crossover (MSFT)",
+    text: "Buy MSFT when SMA(20) crosses above SMA(50), sell when SMA(20) crosses below SMA(50).",
+  },
+];
+
 /** Plain-English strategy input -- the app's front door. Submitting calls
  * `/translate` (via the parent flow) -- never anything that runs a backtest. */
 export function TranslateInputView({ onSubmit, disabled }: TranslateInputViewProps) {
@@ -48,6 +69,25 @@ export function TranslateInputView({ onSubmit, disabled }: TranslateInputViewPro
             rows={6}
           />
         </div>
+
+        <div className="space-y-2">
+          <p className="text-sm text-muted-foreground">New here? Try an example:</p>
+          <div className="flex flex-wrap gap-2">
+            {EXAMPLE_STRATEGIES.map((example) => (
+              <button
+                key={example.label}
+                type="button"
+                data-testid="example-strategy"
+                disabled={disabled}
+                onClick={() => setText(example.text)}
+                className="rounded-full border border-border bg-card px-3 py-1.5 text-xs font-medium text-foreground disabled:opacity-50"
+              >
+                {example.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
         <button
           type="submit"
           data-testid="translate-submit"

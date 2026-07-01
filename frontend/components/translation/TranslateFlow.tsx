@@ -4,6 +4,7 @@ import { useReducer, useState } from "react";
 import { RobustnessResultView } from "@/components/robustness/RobustnessResultView";
 import type { RobustnessResult } from "@/lib/robustness/types";
 import { httpTranslationApi, type TranslationApi } from "@/lib/translation/api";
+import { describeError } from "@/lib/translation/errors";
 import type { TranslationPayload } from "@/lib/translation/types";
 import { AssumptionsView } from "./AssumptionsView";
 import { ConfirmGate } from "./ConfirmGate";
@@ -30,6 +31,7 @@ type Phase = "idle" | "translating" | "gate" | "correcting" | "confirming" | "re
 interface ActionError {
   action: "translate" | "correct" | "confirm";
   message: string;
+  detail?: string;
 }
 
 interface FlowState {
@@ -43,13 +45,13 @@ interface FlowState {
 type FlowAction =
   | { type: "TRANSLATE_START" }
   | { type: "TRANSLATE_SUCCESS"; nlText: string; payload: TranslationPayload }
-  | { type: "TRANSLATE_ERROR"; message: string }
+  | { type: "TRANSLATE_ERROR"; message: string; detail?: string }
   | { type: "CORRECT_START" }
   | { type: "CORRECT_SUCCESS"; payload: TranslationPayload }
-  | { type: "CORRECT_ERROR"; message: string }
+  | { type: "CORRECT_ERROR"; message: string; detail?: string }
   | { type: "CONFIRM_START" }
   | { type: "CONFIRM_SUCCESS"; payload: RobustnessResult }
-  | { type: "CONFIRM_ERROR"; message: string };
+  | { type: "CONFIRM_ERROR"; message: string; detail?: string };
 
 const INITIAL_STATE: FlowState = {
   phase: "idle",
@@ -73,7 +75,11 @@ function reducer(state: FlowState, action: FlowAction): FlowState {
         error: null,
       };
     case "TRANSLATE_ERROR":
-      return { ...state, phase: "idle", error: { action: "translate", message: action.message } };
+      return {
+        ...state,
+        phase: "idle",
+        error: { action: "translate", message: action.message, detail: action.detail },
+      };
     case "CORRECT_START":
       return { ...state, phase: "correcting", error: null };
     case "CORRECT_SUCCESS":
@@ -86,7 +92,11 @@ function reducer(state: FlowState, action: FlowAction): FlowState {
     case "CORRECT_ERROR":
       // Stay at the gate with the prior translation intact -- a failed
       // correction must not discard the last good stated/assumed split.
-      return { ...state, phase: "gate", error: { action: "correct", message: action.message } };
+      return {
+        ...state,
+        phase: "gate",
+        error: { action: "correct", message: action.message, detail: action.detail },
+      };
     case "CONFIRM_START":
       return { ...state, phase: "confirming", error: null };
     case "CONFIRM_SUCCESS":
@@ -94,7 +104,11 @@ function reducer(state: FlowState, action: FlowAction): FlowState {
     case "CONFIRM_ERROR":
       // Back to the gate, not results -- a failed confirm must never set
       // `result`, which is the only thing that can mount the renderer.
-      return { ...state, phase: "gate", error: { action: "confirm", message: action.message } };
+      return {
+        ...state,
+        phase: "gate",
+        error: { action: "confirm", message: action.message, detail: action.detail },
+      };
     default:
       return state;
   }
@@ -109,7 +123,8 @@ export function TranslateFlow({ api = httpTranslationApi }: TranslateFlowProps) 
       const response = await api.translate(nlText);
       dispatch({ type: "TRANSLATE_SUCCESS", nlText, payload: response });
     } catch (err) {
-      dispatch({ type: "TRANSLATE_ERROR", message: err instanceof Error ? err.message : String(err) });
+      const { message, detail } = describeError(err, "translate");
+      dispatch({ type: "TRANSLATE_ERROR", message, detail });
     }
   }
 
@@ -120,7 +135,8 @@ export function TranslateFlow({ api = httpTranslationApi }: TranslateFlowProps) 
       const response = await api.correct(state.originalNl, state.translation.ir, correctionText);
       dispatch({ type: "CORRECT_SUCCESS", payload: response });
     } catch (err) {
-      dispatch({ type: "CORRECT_ERROR", message: err instanceof Error ? err.message : String(err) });
+      const { message, detail } = describeError(err, "correct");
+      dispatch({ type: "CORRECT_ERROR", message, detail });
     }
   }
 
@@ -132,7 +148,8 @@ export function TranslateFlow({ api = httpTranslationApi }: TranslateFlowProps) 
       const response = await api.confirm(state.translation.ir, state.translation.assumptions, ticker, start, end);
       dispatch({ type: "CONFIRM_SUCCESS", payload: response });
     } catch (err) {
-      dispatch({ type: "CONFIRM_ERROR", message: err instanceof Error ? err.message : String(err) });
+      const { message, detail } = describeError(err, "confirm");
+      dispatch({ type: "CONFIRM_ERROR", message, detail });
     }
   }
 
@@ -143,7 +160,9 @@ export function TranslateFlow({ api = httpTranslationApi }: TranslateFlowProps) 
 
   return (
     <div data-testid="translate-flow" className="mx-auto max-w-2xl space-y-8 p-6">
-      {state.error?.action === "translate" && <ErrorBanner testId="translate-error" message={state.error.message} />}
+      {state.error?.action === "translate" && (
+        <ErrorBanner testId="translate-error" message={state.error.message} detail={state.error.detail} />
+      )}
 
       {state.phase !== "results" && (
         <TranslateInputView onSubmit={handleTranslate} disabled={isTranslating} />
@@ -169,7 +188,9 @@ export function TranslateFlow({ api = httpTranslationApi }: TranslateFlowProps) 
               </p>
             </header>
 
-            {state.error?.action === "confirm" && <ErrorBanner testId="confirm-error" message={state.error.message} />}
+            {state.error?.action === "confirm" && (
+              <ErrorBanner testId="confirm-error" message={state.error.message} detail={state.error.detail} />
+            )}
             <ConfirmGate
               defaultTicker={(state.translation!.ir?.asset as { ticker: string })?.ticker ?? ""}
               onConfirm={handleConfirm}
@@ -178,7 +199,9 @@ export function TranslateFlow({ api = httpTranslationApi }: TranslateFlowProps) 
 
             <div className="space-y-2">
               <p className="text-sm font-medium text-foreground">Not right? Correct it instead.</p>
-              {state.error?.action === "correct" && <ErrorBanner testId="correct-error" message={state.error.message} />}
+              {state.error?.action === "correct" && (
+                <ErrorBanner testId="correct-error" message={state.error.message} detail={state.error.detail} />
+              )}
               <CorrectionBox onSubmit={handleCorrect} disabled={isCorrecting} />
             </div>
           </div>
@@ -202,12 +225,28 @@ export function TranslateFlow({ api = httpTranslationApi }: TranslateFlowProps) 
  * strategy, but the strict palette rule for this phase draws no
  * exception for it. Prominence (border, filled background, near-white
  * text) carries the "something went wrong" weight instead of color.
+ *
+ * `message` is `describeError`'s friendly copy -- the only thing visible
+ * by default. `detail` is the raw, preserved error text (a "(500): ..."
+ * string, a fetch `TypeError`, etc.) -- it renders inside a collapsed
+ * `<details>` so it never appears as the headline, but stays one click
+ * away for anyone who wants it.
  */
-function ErrorBanner({ testId, message }: { testId: string; message: string }) {
+function ErrorBanner({ testId, message, detail }: { testId: string; message: string; detail?: string }) {
   return (
-    <p data-testid={testId} role="alert" className="rounded-lg border-2 border-foreground/40 bg-muted p-4 text-foreground">
-      {message}
-    </p>
+    <div data-testid={testId} role="alert" className="rounded-lg border-2 border-foreground/40 bg-muted p-4 text-foreground">
+      <p data-testid={`${testId}-message`}>{message}</p>
+      {detail && (
+        <details className="mt-2">
+          <summary className="cursor-pointer select-none text-sm font-medium text-foreground">
+            Technical details
+          </summary>
+          <p data-testid={`${testId}-detail`} className="mt-1 whitespace-pre-wrap font-mono text-xs text-muted-foreground">
+            {detail}
+          </p>
+        </details>
+      )}
+    </div>
   );
 }
 
