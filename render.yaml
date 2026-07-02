@@ -1,0 +1,22 @@
+# Render blueprint for the NLSB backend (Phase 10).
+# The frontend deploys to Vercel separately — see DEPLOY.md.
+#
+# Python version pinning, both platform variants (keep in sync):
+#   * Render:  the PYTHON_VERSION env var below (authoritative on Render).
+#   * Railway: backend/.python-version + backend/Procfile (Render also reads
+#     .python-version, so the two platforms can't drift apart silently).
+services:
+  - type: web
+    name: nlsb-backend
+    runtime: python
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt -c requirements.lock.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.14.2
+      - key: ANTHROPIC_API_KEY
+        sync: false # secret — set in the Render dashboard, never committed
+      - key: ALLOWED_ORIGINS
+        sync: false # the deployed frontend origin(s), comma-separated

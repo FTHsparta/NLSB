@@ -55,8 +55,11 @@ def test_large_gap_raises(monkeypatch):
         fetch_daily_bars("SPY", start="2020-01-01")
 
 
+@pytest.mark.live
 def test_real_spy_fetch_is_clean():
-    """Integration check against live yfinance — exercises the real network path."""
+    """Integration check against live yfinance — exercises the real network path.
+    Marked `live` so CI (which has no stable network path to Yahoo) skips it;
+    it still runs in the default local suite."""
     df = fetch_daily_bars("SPY", start="2015-01-01", end="2024-01-01")
 
     assert list(df.columns) == market_data.OHLCV_COLUMNS

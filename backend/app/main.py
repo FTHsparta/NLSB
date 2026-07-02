@@ -23,11 +23,13 @@ load_dotenv()
 
 
 import logging
+import os
 import time
 from typing import Any
 
 import jsonschema
 from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from slowapi.errors import RateLimitExceeded
@@ -54,6 +56,41 @@ logger = logging.getLogger("app.main")
 request_logger = logging.getLogger("app.request")
 
 app = FastAPI(title="NLSB API")
+
+
+# --- CORS (Phase 10) ---------------------------------------------------------
+#
+# In local dev the Next.js rewrite proxy makes every request same-origin, so
+# none of this fires. In the deployed topology (frontend on Vercel, backend on
+# Render/Railway, separate domains) the browser calls this API cross-origin
+# and needs these headers. Origins come from ALLOWED_ORIGINS (comma-separated,
+# read once at startup); methods/headers are the minimum the actual routes
+# use (GET /health, POST + JSON body on the other three). Credentials stay
+# off -- nothing here uses cookies or auth headers.
+
+_DEV_ORIGINS = ["http://localhost:3000", "http://127.0.0.1:3000"]
+
+
+def allowed_origins() -> list[str]:
+    """Parse ALLOWED_ORIGINS; fall back to the localhost dev origins when
+    unset/empty. A literal "*" entry is dropped (with a warning): a wildcard
+    is never a valid non-default configuration for this API."""
+    raw = os.environ.get("ALLOWED_ORIGINS", "")
+    origins = [o.strip().rstrip("/") for o in raw.split(",") if o.strip()]
+    if "*" in origins:
+        logging.getLogger("app.main").warning(
+            "ALLOWED_ORIGINS contained '*'; wildcard origins are not honored"
+        )
+        origins = [o for o in origins if o != "*"]
+    return origins or list(_DEV_ORIGINS)
+
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=allowed_origins(),
+    allow_methods=["GET", "POST"],
+    allow_headers=["Content-Type"],
+)
 
 # Rate limiter wiring: slowapi reads the limiter off app.state and raises
 # RateLimitExceeded, which we render as a plain-English 429 JSON body.
@@ -112,7 +149,13 @@ async def log_requests(request: Request, call_next):
 
 @app.get("/health")
 def health() -> dict:
-    return {"status": "ok"}
+    """Trivial and fast on purpose: platform health checks poll this. The
+    readiness detail is a BOOLEAN ONLY -- never the key, a prefix, or any
+    other derivative of it (INV-2)."""
+    return {
+        "status": "ok",
+        "anthropic_key_present": bool(os.environ.get("ANTHROPIC_API_KEY")),
+    }
 
 
 # --- Dependencies (overridden in tests to avoid real network/LLM calls) ---

@@ -1,5 +1,6 @@
 import type { Assumption, TranslationPayload } from "./types";
 import type { RobustnessResult } from "@/lib/robustness/types";
+import { apiUrl } from "@/lib/apiBase";
 
 /**
  * Thin fetch wrappers over the three routes `app/main.py` wires to
@@ -24,7 +25,7 @@ export interface TranslationApi {
 }
 
 async function postJson<T>(path: string, body: unknown): Promise<T> {
-  const res = await fetch(path, {
+  const res = await fetch(apiUrl(path), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),

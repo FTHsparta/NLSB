@@ -91,6 +91,27 @@ var), so the browser only ever talks to one origin and the backend needs
 no CORS config. A real `/translate` call needs `ANTHROPIC_API_KEY` set in
 `backend/.env` (see `.env.example`).
 
+## Production
+
+Deployment topology, platform settings, and the full env var table live in
+[DEPLOY.md](DEPLOY.md). The short version:
+
+- **Backend** (Render or Railway) — production start command (no `--reload`):
+
+  ```bash
+  uvicorn app.main:app --host 0.0.0.0 --port $PORT
+  ```
+
+  Captured in `backend/Procfile` (Railway) and `render.yaml` (Render).
+  Python is pinned to 3.14.2 (`backend/.python-version` for Railway;
+  `PYTHON_VERSION` in `render.yaml` for Render). Install with the lockfile:
+  `pip install -r requirements.txt -c requirements.lock.txt`.
+
+- **Frontend** (Vercel) — set `NEXT_PUBLIC_API_BASE_URL` to the backend's
+  origin; the backend must list the frontend's origin in `ALLOWED_ORIGINS`.
+  With neither set, everything falls back to the local dev proxy behavior
+  described above.
+
 > **Git Bash / some shells:** if `npm run <script>` fails with
 > `ERR_INVALID_ARG_TYPE: The "file" argument must be of type string. Received undefined`,
 > it's because `ComSpec` isn't set in that shell's environment (npm needs it
