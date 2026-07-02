@@ -2,6 +2,8 @@
 
 import { useReducer, useState } from "react";
 import { RobustnessResultView } from "@/components/robustness/RobustnessResultView";
+import { DisclaimerFooter } from "@/components/chrome/Disclaimer";
+import { CONFIRM_STAGES, ProgressIndicator } from "@/components/chrome/ProgressIndicator";
 import type { RobustnessResult } from "@/lib/robustness/types";
 import { httpTranslationApi, type TranslationApi } from "@/lib/translation/api";
 import { describeError } from "@/lib/translation/errors";
@@ -118,6 +120,10 @@ export function TranslateFlow({ api = httpTranslationApi }: TranslateFlowProps) 
   const [state, dispatch] = useReducer(reducer, INITIAL_STATE);
 
   async function handleTranslate(nlText: string) {
+    // Double-submit guard: never launch a second in-flight request. The
+    // buttons also disable during a request, but this makes it structural,
+    // not merely visual -- a programmatic or racing double-fire is a no-op.
+    if (state.phase === "translating") return;
     dispatch({ type: "TRANSLATE_START" });
     try {
       const response = await api.translate(nlText);
@@ -130,6 +136,7 @@ export function TranslateFlow({ api = httpTranslationApi }: TranslateFlowProps) 
 
   async function handleCorrect(correctionText: string) {
     if (!state.originalNl || !state.translation?.ir) return;
+    if (state.phase === "correcting") return;
     dispatch({ type: "CORRECT_START" });
     try {
       const response = await api.correct(state.originalNl, state.translation.ir, correctionText);
@@ -142,6 +149,7 @@ export function TranslateFlow({ api = httpTranslationApi }: TranslateFlowProps) 
 
   async function handleConfirm(start: string, end: string | null) {
     if (!state.translation?.ir) return;
+    if (state.phase === "confirming") return;
     dispatch({ type: "CONFIRM_START" });
     try {
       const ticker = (state.translation.ir.asset as { ticker: string }).ticker;
@@ -166,6 +174,10 @@ export function TranslateFlow({ api = httpTranslationApi }: TranslateFlowProps) 
 
       {state.phase !== "results" && (
         <TranslateInputView onSubmit={handleTranslate} disabled={isTranslating} />
+      )}
+
+      {isTranslating && (
+        <ProgressIndicator testId="translating-indicator" label="Translating your strategy…" />
       )}
 
       {atGate && (
@@ -197,6 +209,15 @@ export function TranslateFlow({ api = httpTranslationApi }: TranslateFlowProps) 
               disabled={isConfirming}
             />
 
+            {isConfirming && (
+              <ProgressIndicator
+                testId="confirming-indicator"
+                label="Running backtest and robustness checks…"
+                stages={CONFIRM_STAGES}
+                showElapsed
+              />
+            )}
+
             <div className="space-y-2">
               <p className="text-sm font-medium text-foreground">Not right? Correct it instead.</p>
               {state.error?.action === "correct" && (
@@ -215,6 +236,8 @@ export function TranslateFlow({ api = httpTranslationApi }: TranslateFlowProps) 
       )}
 
       {state.phase === "results" && state.result && <RobustnessResultView result={state.result} />}
+
+      <DisclaimerFooter />
     </div>
   );
 }

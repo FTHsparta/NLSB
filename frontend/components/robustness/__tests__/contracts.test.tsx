@@ -15,6 +15,7 @@ import { VerdictCard } from "../VerdictCard";
 
 import bullConcentrationConfirmedFixture from "@/fixtures/robustness/bull_concentration_confirmed.json";
 import bullConcentrationProvisionalFixture from "@/fixtures/robustness/bull_concentration_provisional.json";
+import bullConcentrationWithVerdictFixture from "@/fixtures/robustness/bull_concentration_with_verdict.json";
 import likelyOverfitFixture from "@/fixtures/robustness/likely_overfit.json";
 import noExitFixture from "@/fixtures/robustness/no_exit.json";
 import passFixture from "@/fixtures/robustness/pass.json";
@@ -30,6 +31,7 @@ const LIKELY_OVERFIT_RESULT = likelyOverfitFixture as unknown as RobustnessResul
 const NO_EXIT_RESULT = noExitFixture as unknown as RobustnessResult;
 const BULL_CONCENTRATION_CONFIRMED_RESULT = bullConcentrationConfirmedFixture as unknown as RobustnessResult;
 const BULL_CONCENTRATION_PROVISIONAL_RESULT = bullConcentrationProvisionalFixture as unknown as RobustnessResult;
+const BULL_CONCENTRATION_WITH_VERDICT_RESULT = bullConcentrationWithVerdictFixture as unknown as RobustnessResult;
 
 describe("CONTRACT 1: verdict leads, raw figures follow", () => {
   it("places the verdict label and reason before any raw Sharpe/return figure in DOM order", () => {
@@ -220,5 +222,82 @@ describe("CONTRACT 5: marginal bull-concentration flag renders, not just fires",
     expect(flagEl).toHaveClass("text-muted-foreground");
     expect(flagEl).not.toHaveClass("text-foreground");
     expect(flagEl.textContent).toContain("(provisional)");
+  });
+});
+
+/**
+ * CONTRACT 6 (Phase 9): the unexpected-shape fallback. The frontend is a pure
+ * renderer, but a truncated/garbled payload must degrade to a plain raw-output
+ * panel, never throw and blank the page. The shape check confirms only the
+ * fields this tree dereferences -- it re-derives no judgment.
+ */
+describe("CONTRACT 6: unexpected-shape payload degrades to a raw-output fallback, never throws", () => {
+  it("renders the fallback panel (not a crash) for a truncated full payload", () => {
+    const truncated = { kind: "full", verdict: null } as unknown as RobustnessResult;
+    expect(() => render(<RobustnessResultView result={truncated} />)).not.toThrow();
+    expect(screen.getByTestId("results-fallback")).toBeInTheDocument();
+    expect(screen.queryByTestId("robustness-result-view")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("verdict-card")).not.toBeInTheDocument();
+  });
+
+  it("renders the fallback for an unknown kind and preserves the raw JSON for debugging", () => {
+    const weird = { kind: "banana", foo: 42 } as unknown as RobustnessResult;
+    render(<RobustnessResultView result={weird} />);
+    expect(screen.getByTestId("results-fallback-raw").textContent).toContain("banana");
+  });
+
+  it("a valid full result still renders normally -- the fallback never false-positives", () => {
+    render(<RobustnessResultView result={PASS_RESULT} />);
+    expect(screen.getByTestId("robustness-result-view")).toBeInTheDocument();
+    expect(screen.queryByTestId("results-fallback")).not.toBeInTheDocument();
+  });
+});
+
+/**
+ * CONTRACT 7 (Phase 9): the methodology note ("How to read a verdict") is
+ * reachable from the results surface and covers all four verdicts. Educational
+ * chrome, authored generically -- it never restates a specific run's numbers.
+ */
+describe("CONTRACT 7: methodology note reachable from results, headings for all four verdicts", () => {
+  it("renders the methodology panel with a heading for each verdict", () => {
+    render(<RobustnessResultView result={PASS_RESULT} />);
+    expect(screen.getByTestId("methodology-note")).toBeInTheDocument();
+    for (const v of ["PASS", "SHAKY", "LIKELY_OVERFIT", "UNTESTABLE"]) {
+      expect(screen.getByTestId(`methodology-heading-${v}`)).toBeInTheDocument();
+    }
+  });
+
+  it("is NOT rendered on the no-exit surface (there is no verdict to explain there)", () => {
+    render(<RobustnessResultView result={NO_EXIT_RESULT} />);
+    expect(screen.queryByTestId("methodology-note")).not.toBeInTheDocument();
+  });
+});
+
+/**
+ * CONTRACT 8 (Phase 9): a real fixture pairing a NON-UNTESTABLE verdict with a
+ * populated bull-concentration flag. Before this, every full fixture that
+ * carried the flag was UNTESTABLE, so nothing pinned that the flag renders
+ * *alongside a judgment verdict card* -- exactly the case the live smoke test
+ * once showed but no automated fixture held. Dumped from the real orchestrator
+ * (`build_bull_concentration_with_verdict`, pinned in `test_robustness_fixtures.py`).
+ */
+describe("CONTRACT 8: bull-concentration flag renders alongside a real (non-UNTESTABLE) verdict card", () => {
+  it("shows both the verdict card and the confirmed flag in one result", () => {
+    if (BULL_CONCENTRATION_WITH_VERDICT_RESULT.kind !== "full") throw new Error("fixture is not a full result");
+    expect(BULL_CONCENTRATION_WITH_VERDICT_RESULT.verdict.verdict).not.toBe("UNTESTABLE");
+
+    render(<RobustnessResultView result={BULL_CONCENTRATION_WITH_VERDICT_RESULT} />);
+
+    const card = screen.getByTestId("verdict-card");
+    expect(card).toHaveAttribute("data-verdict", BULL_CONCENTRATION_WITH_VERDICT_RESULT.verdict.verdict);
+
+    const flagEl = screen.getByTestId("stat-marginal-bull_concentration");
+    expect(flagEl).toBeInTheDocument();
+    // Confirmed -> full-prominence (bold/foreground), no provisional suffix,
+    // and the excess printed verbatim from the fixture (display formatting only).
+    expect(flagEl).toHaveClass("text-foreground");
+    expect(flagEl.textContent).not.toContain("(provisional)");
+    const excess = BULL_CONCENTRATION_WITH_VERDICT_RESULT.regime.marginal_flags[0]!.excess;
+    expect(flagEl).toHaveTextContent(`+${(excess * 100).toFixed(1)} pp vs benchmark`);
   });
 });

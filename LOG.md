@@ -1,5 +1,31 @@
 # Build Log
 
+## 2026-07-02 — Phase 9: latency UX, trust layer, parked cleanup (frontend + copy)
+
+**What:** Closed the gap between "works" and "feels trustworthy to a stranger" — staged progress, double-submit protection, a legal disclaimer, a methodology note, an unexpected-shape fallback, and the last two parked fixtures/items. Almost all frontend chrome; the only backend change is one new fixture builder + its pin. Corollary-safe: progress/disclaimer/methodology are facts about the product (frontend's own copy), not judgments about a strategy.
+
+**Orientation measurement (the number this phase was told to capture, not act on):** a full real `/confirm` run on SPY 2015–2025 with the SMA-50/200 golden-cross example took **~18.1s wall-clock** (3.4s yfinance fetch + 14.7s `run_robustness` compute, 2516 bars). That ~15–20s wait is what the confirming-stage progress copy is sized for; it also frames the eventual sync-vs-async decision (deferred).
+
+**Task 1 — staged progress (`ProgressIndicator`, chrome).** An indeterminate monochrome spinner + a steady label, and for the long confirm wait: elapsed-driven activity sub-labels ("Fetching price history…" → "Running the backtest…" → "Checking robustness…", ordered to match the backend sequence) plus a subtle "Ns elapsed" counter. Deliberately **no fake percentage / progress bar** — fabricated precision in an honesty tool is off-thesis; the test asserts no `%` and no `role="progressbar"`. Wired into `TranslateFlow`: `translating-indicator` mounts only while `phase==="translating"`, `confirming-indicator` only while `"confirming"`, each unmounting on transition.
+
+**Task 2 — double-submit protection.** Buttons already disabled in-flight (visual); added structural guards at the top of each handler (`if (state.phase === "translating"/"correcting"/"confirming") return;`) so a programmatic/racing double-fire is a no-op too. Tests fire three rapid clicks against a hand-resolved deferred promise and assert the api was called exactly once.
+
+**Task 3 — disclaimer (`DisclaimerFooter` on every screen; `ResultsDisclaimer` fuller block on results).** NLSB's own plain voice — hypothetical/backtested, not a prediction, not advice, data may contain errors — muted-gray, monochrome. Footer lives in `TranslateFlow`'s root so it renders in every phase; the fuller block renders on both the full and no-exit results surfaces.
+
+**Task 4 — methodology note ("How to read a verdict", ~350 words).** An expandable `<details>` on the results surface with a heading for each of the four verdicts, what each of the four checks asks, and why a great-looking curve can still be overfit. Generic by construction — a test asserts it prints **no digits at all**, so it can never read as a specific run's numbers. Rendered only on the full-result surface (not no-exit, which has no verdict — this also keeps CONTRACT 3's "no verdict words on no-exit" green).
+
+**Task 5 — unexpected-shape fallback in `RobustnessResultView`.** A minimal runtime shape check (only the fields this tree dereferences); on failure it renders a plain "These results couldn't be displayed — raw output below" with the JSON in a collapsed `<details>`, instead of throwing and blanking the page. Re-derives no judgment. Tests: truncated payload → fallback, no throw; valid result → never false-positives.
+
+**Task 6 — PASS/SHAKY-with-flag fixture (was parked, now DONE).** Every prior full fixture carrying a bull-concentration flag was UNTESTABLE (their single bull-then-bear series gives the trend-follower ~0 OOS trades). Root-caused via the confirmed fixture's folds (all `oos_num_trades==0`). Added a `_multi_cycle_series` generator (repeated up/down ramps with net upward bias + noise) so the trend-follower crosses its SMA every cycle → real OOS trades → genuinely testable, while still sitting out down-ramps → more bull-concentrated than its benchmark. A short (period, cycles, seed, noise) search found `build_bull_concentration_with_verdict` — **SHAKY verdict + confirmed flag (excess 0.2023), OOS trades [4,3,2]**, deterministic. Pinned in `test_robustness_fixtures.py` (verdict ≠ UNTESTABLE, confirmed flag, every fold has OOS trades) and a frontend CONTRACT 8 asserts the verdict card and the confirmed flag render together.
+
+**Invariants:** INV-1/INV-2 (color) untouched and green; extended the negative color scan to the five new chrome surfaces + the fallback. One gotcha: methodology verdict testids were first `methodology-verdict-PASS`, which the `verdict-` CSS-token scan false-flagged — renamed to `methodology-heading-*` so the invariant stays literal. INV-3 (gate integrity), INV-4 (no re-derived judgment — all new copy is chrome), INV-5 (existing tests unmodified; tsc/eslint/build clean) all hold.
+
+**Judgment calls:** (a) methodology + disclaimer are corollary-safe chrome, so authored in-component. (b) The fixture search succeeded within minutes, so Task 6 landed rather than re-parking; the winning tuple is load-bearing (cliff-like space) and documented as such. (c) Double-submit is defended in two layers (disabled attribute + handler guard) rather than relying on the visual disabled state alone.
+
+**Counts:** frontend **55 → 75** (+20: 7 chrome, +6 translation, +5 robustness fallback/methodology, +2 color-invariants — and CONTRACT 8 for the new fixture); backend **230 → 231** (+1 fixture pin). tsc, eslint, `next build` clean.
+
+Next: the ~18s `/confirm` latency is now honestly surfaced but still synchronous — a real async/job-queue decision is the open follow-up. Not started: deployment configuration (explicitly out of scope this phase).
+
 ## 2026-07-01 — Phase 8B: adversarial hardening of the IR boundary (backend)
 
 **What:** A red-team pass on the /confirm IR boundary before public exposure. /confirm accepts a *client-supplied* IR, so a hostile client can POST arbitrary JSON there without ever using the translator. Mostly new tests proving the boundary holds; four real holes were found and fixed. Security boundary unchanged: the LLM emits only validated IR JSON; no model output is ever exec'd/eval'd.

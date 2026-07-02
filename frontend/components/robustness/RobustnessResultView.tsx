@@ -1,10 +1,52 @@
 import type { RobustnessResult } from "@/lib/robustness/types";
+import { ResultsDisclaimer } from "@/components/chrome/Disclaimer";
+import { MethodologyNote } from "@/components/chrome/MethodologyNote";
 import { BuyHoldComparison } from "./BuyHoldComparison";
 import { RobustnessPanel } from "./RobustnessPanel";
 import { VerdictCard } from "./VerdictCard";
 
 export interface RobustnessResultViewProps {
   result: RobustnessResult;
+}
+
+/**
+ * A minimal, defensive shape check (Phase 9). The frontend is a pure renderer
+ * of backend judgment, but a truncated/garbled payload (a proxy that clipped
+ * the body, a partial deploy, a shape drift) should degrade to a plain "raw
+ * output" panel, NEVER throw and blank the page mid-render. This checks only
+ * the fields this component and its children dereference -- it does not
+ * re-derive or re-validate any judgment, just confirms the object is
+ * structurally renderable.
+ */
+function isRenderableResult(result: unknown): result is RobustnessResult {
+  if (!result || typeof result !== "object") return false;
+  const r = result as Record<string, unknown>;
+
+  if (r.kind === "no_exit") {
+    return r.no_exit != null && typeof r.no_exit === "object";
+  }
+  if (r.kind === "full") {
+    const verdict = r.verdict as Record<string, unknown> | null | undefined;
+    return (
+      verdict != null &&
+      typeof verdict === "object" &&
+      typeof verdict.verdict === "string" &&
+      Array.isArray(verdict.reasons) &&
+      Array.isArray(r.sensitivity) &&
+      r.walk_forward != null &&
+      r.deflated_sharpe != null &&
+      r.regime != null
+    );
+  }
+  return false;
+}
+
+function safeStringify(value: unknown): string {
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
+  }
 }
 
 /**
@@ -21,8 +63,34 @@ export interface RobustnessResultViewProps {
  * components.
  */
 export function RobustnessResultView({ result }: RobustnessResultViewProps) {
+  if (!isRenderableResult(result)) {
+    return (
+      <div
+        data-testid="results-fallback"
+        role="alert"
+        className="rounded-lg border border-border bg-card p-6 text-sm text-foreground"
+      >
+        <p>These results couldn&apos;t be displayed — raw output below.</p>
+        <details className="mt-3">
+          <summary className="cursor-pointer select-none text-sm font-medium text-foreground">Raw output</summary>
+          <pre
+            data-testid="results-fallback-raw"
+            className="mt-2 max-h-96 overflow-auto whitespace-pre-wrap font-mono text-xs text-muted-foreground"
+          >
+            {safeStringify(result)}
+          </pre>
+        </details>
+      </div>
+    );
+  }
+
   if (result.kind === "no_exit") {
-    return <BuyHoldComparison noExit={result.no_exit} />;
+    return (
+      <>
+        <BuyHoldComparison noExit={result.no_exit} />
+        <ResultsDisclaimer />
+      </>
+    );
   }
 
   return (
@@ -34,6 +102,8 @@ export function RobustnessResultView({ result }: RobustnessResultViewProps) {
         deflatedSharpe={result.deflated_sharpe}
         regime={result.regime}
       />
+      <MethodologyNote />
+      <ResultsDisclaimer />
     </div>
   );
 }

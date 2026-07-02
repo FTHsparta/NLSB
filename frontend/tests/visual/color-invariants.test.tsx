@@ -14,7 +14,11 @@ import { TranslateFlow } from "@/components/translation/TranslateFlow";
 import { TranslateInputView } from "@/components/translation/TranslateInputView";
 import { BuyHoldComparison } from "@/components/robustness/BuyHoldComparison";
 import { RobustnessPanel } from "@/components/robustness/RobustnessPanel";
+import { RobustnessResultView } from "@/components/robustness/RobustnessResultView";
 import { VerdictCard } from "@/components/robustness/VerdictCard";
+import { CONFIRM_STAGES, ProgressIndicator } from "@/components/chrome/ProgressIndicator";
+import { DisclaimerFooter, ResultsDisclaimer } from "@/components/chrome/Disclaimer";
+import { MethodologyNote } from "@/components/chrome/MethodologyNote";
 
 import type { TranslationApi } from "@/lib/translation/api";
 import type { RobustnessResult, Verdict } from "@/lib/robustness/types";
@@ -178,6 +182,35 @@ describe("INV-2: the verdict palette is referenced ONLY by VerdictCard -- no oth
 
     await waitFor(() => expect(screen.getByTestId("translate-error")).toBeInTheDocument());
     const html = screen.getByTestId("translate-error").outerHTML;
+    expect(html).not.toMatch(SATURATED_COLOR_CLASS);
+    expect(html).not.toMatch(/verdict-/);
+  });
+
+  it("Phase 9 chrome (progress, disclaimers, methodology, results fallback) carries no saturated color and no verdict-* token", () => {
+    const surfaces: Array<[string, () => React.ReactElement]> = [
+      ["translating-indicator", () => <ProgressIndicator testId="translating-indicator" label="Translating your strategy…" />],
+      [
+        "confirming-indicator",
+        () => <ProgressIndicator testId="confirming-indicator" label="Running…" stages={CONFIRM_STAGES} showElapsed />,
+      ],
+      ["disclaimer-footer", () => <DisclaimerFooter />],
+      ["results-disclaimer", () => <ResultsDisclaimer />],
+      ["methodology-note", () => <MethodologyNote />],
+    ];
+    for (const [testId, factory] of surfaces) {
+      const { unmount } = render(factory());
+      const html = screen.getByTestId(testId).innerHTML;
+      expect(html, `${testId} must be monochrome`).not.toMatch(SATURATED_COLOR_CLASS);
+      // Note: methodology testids intentionally avoid the literal "verdict-"
+      // substring so this token scan stays meaningful here too.
+      expect(html, `${testId} must not reuse a verdict token`).not.toMatch(/verdict-/);
+      unmount();
+    }
+  });
+
+  it("the results fallback (unexpected-shape branch) carries no saturated color and no verdict-* token", () => {
+    render(<RobustnessResultView result={{ kind: "full", verdict: null } as unknown as RobustnessResult} />);
+    const html = screen.getByTestId("results-fallback").innerHTML;
     expect(html).not.toMatch(SATURATED_COLOR_CLASS);
     expect(html).not.toMatch(/verdict-/);
   });

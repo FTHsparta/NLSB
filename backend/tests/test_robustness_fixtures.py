@@ -13,6 +13,7 @@ from app.robustness.regime import MARGINAL_BULL_EXCESS_CONFIRMED_THRESHOLD, MARG
 from scripts.dump_robustness_fixtures import (
     build_bull_concentration_confirmed,
     build_bull_concentration_provisional,
+    build_bull_concentration_with_verdict,
     build_likely_overfit,
     build_no_exit,
     build_pass,
@@ -73,3 +74,24 @@ def test_build_bull_concentration_provisional_actually_fires_provisional():
     assert flags[0]["flag"] == "bull_concentration"
     assert flags[0]["confidence"] == "provisional"
     assert MARGINAL_BULL_EXCESS_THRESHOLD < flags[0]["excess"] <= MARGINAL_BULL_EXCESS_CONFIRMED_THRESHOLD
+
+
+def test_build_bull_concentration_with_verdict_pairs_a_real_verdict_with_a_confirmed_flag():
+    """Phase 9 fixture pin: this is the ONLY fixture pairing a non-UNTESTABLE
+    verdict with a populated bull-concentration flag (the two other
+    bull_concentration_* fixtures both land UNTESTABLE). It exists so the
+    frontend can pin "flag renders alongside a real verdict card." If a
+    threshold or series-construction change either demotes the verdict to
+    UNTESTABLE or drops the flag below the confirmed band, this fails loudly
+    rather than letting that frontend contract test go vacuous."""
+    result = build_bull_concentration_with_verdict()
+    assert result["kind"] == "full"
+    assert result["verdict"]["verdict"] != "UNTESTABLE"
+    flags = result["regime"]["marginal_flags"]
+    assert len(flags) == 1
+    assert flags[0]["flag"] == "bull_concentration"
+    assert flags[0]["confidence"] == "confirmed"
+    assert flags[0]["excess"] > MARGINAL_BULL_EXCESS_CONFIRMED_THRESHOLD
+    # And it is genuinely testable, not untestable-in-disguise: real OOS
+    # trades in every walk-forward fold are what keep it out of UNTESTABLE.
+    assert all(fold["oos_num_trades"] > 0 for fold in result["walk_forward"]["folds"])

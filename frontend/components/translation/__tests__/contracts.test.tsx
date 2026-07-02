@@ -7,7 +7,7 @@
  * is the real `run_robustness` output from 5a, used only to prove the
  * confirm path hands its result to the existing 5a renderer unmodified.
  */
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { AssumptionsView } from "../AssumptionsView";
@@ -320,5 +320,120 @@ describe("CONTRACT 8: friendly error fallback -- a raw HTTP status never reaches
 
     // Stayed at the gate with the prior translation intact.
     expect(screen.getByTestId("assumptions-view")).toBeInTheDocument();
+  });
+});
+
+/** A promise the test resolves by hand, to hold a request "in flight" for a
+ * deterministic window (no timers, no MSW delay races). */
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((r) => {
+    resolve = r;
+  });
+  return { promise, resolve };
+}
+
+describe("CONTRACT 9 (Phase 9): staged progress indicators mount during a request and unmount on transition", () => {
+  it("shows the translating indicator only while /translate is in flight", async () => {
+    const d = deferred<TranslationPayload>();
+    const api = fakeApi({ translate: vi.fn(() => d.promise) });
+    render(<TranslateFlow api={api} />);
+
+    fireEvent.change(screen.getByTestId("nl-input"), { target: { value: "buy SPY when RSI < 30" } });
+    fireEvent.click(screen.getByTestId("translate-submit"));
+
+    expect(screen.getByTestId("translating-indicator")).toBeInTheDocument();
+
+    await act(async () => {
+      d.resolve(ORDINARY);
+      await d.promise;
+    });
+
+    await waitFor(() => expect(screen.queryByTestId("translating-indicator")).not.toBeInTheDocument());
+    expect(screen.getByTestId("assumptions-view")).toBeInTheDocument();
+  });
+
+  it("shows the confirming indicator with an elapsed counter only while /confirm is in flight", async () => {
+    const d = deferred<RobustnessResult>();
+    const api = fakeApi({ confirm: vi.fn(() => d.promise) });
+    await translateInto(api);
+
+    fireEvent.click(screen.getByTestId("confirm-run-button"));
+
+    expect(screen.getByTestId("confirming-indicator")).toBeInTheDocument();
+    expect(screen.getByTestId("confirming-indicator-elapsed")).toBeInTheDocument();
+
+    await act(async () => {
+      d.resolve(PASS_RESULT);
+      await d.promise;
+    });
+
+    await waitFor(() => expect(screen.queryByTestId("confirming-indicator")).not.toBeInTheDocument());
+    expect(screen.getByTestId("robustness-result-view")).toBeInTheDocument();
+  });
+});
+
+describe("CONTRACT 10 (Phase 9): double-submit protection -- an in-flight request cannot be fired twice", () => {
+  it("a second Translate click while /translate is in flight does not fire a second request", async () => {
+    const d = deferred<TranslationPayload>();
+    const translate = vi.fn(() => d.promise);
+    const api = fakeApi({ translate });
+    render(<TranslateFlow api={api} />);
+
+    fireEvent.change(screen.getByTestId("nl-input"), { target: { value: "buy SPY when RSI < 30" } });
+    const button = screen.getByTestId("translate-submit");
+    fireEvent.click(button);
+    fireEvent.click(button);
+    fireEvent.click(button);
+
+    expect(translate).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      d.resolve(ORDINARY);
+      await d.promise;
+    });
+    await waitFor(() => expect(screen.getByTestId("assumptions-view")).toBeInTheDocument());
+  });
+
+  it("a second Confirm click while /confirm is in flight does not fire a second request", async () => {
+    const d = deferred<RobustnessResult>();
+    const confirm = vi.fn(() => d.promise);
+    const api = fakeApi({ confirm });
+    await translateInto(api);
+
+    const button = screen.getByTestId("confirm-run-button");
+    fireEvent.click(button);
+    fireEvent.click(button);
+    fireEvent.click(button);
+
+    expect(confirm).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      d.resolve(PASS_RESULT);
+      await d.promise;
+    });
+    await waitFor(() => expect(screen.getByTestId("robustness-result-view")).toBeInTheDocument());
+  });
+});
+
+describe("CONTRACT 11 (Phase 9): the disclaimer footer is present on every screen", () => {
+  it("renders on entry, at the gate, and on the results surface (plus the fuller results block)", async () => {
+    const api = fakeApi();
+    render(<TranslateFlow api={api} />);
+
+    // entry
+    expect(screen.getByTestId("disclaimer-footer")).toBeInTheDocument();
+
+    // gate
+    fireEvent.change(screen.getByTestId("nl-input"), { target: { value: "buy SPY when RSI < 30" } });
+    fireEvent.click(screen.getByTestId("translate-submit"));
+    await waitFor(() => expect(screen.getByTestId("assumptions-view")).toBeInTheDocument());
+    expect(screen.getByTestId("disclaimer-footer")).toBeInTheDocument();
+
+    // results
+    fireEvent.click(screen.getByTestId("confirm-run-button"));
+    await waitFor(() => expect(screen.getByTestId("robustness-result-view")).toBeInTheDocument());
+    expect(screen.getByTestId("disclaimer-footer")).toBeInTheDocument();
+    expect(screen.getByTestId("results-disclaimer")).toBeInTheDocument();
   });
 });

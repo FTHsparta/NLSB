@@ -276,6 +276,53 @@ def build_bull_concentration_provisional() -> dict:
     )
 
 
+def _multi_cycle_series(n_cycles: int, up: int, down: int, seed: int, noise: float, up_amp: float = 60.0, down_amp: float = -55.0) -> pd.Series:
+    """Repeated up/down ramps with a net upward bias (``up_amp + down_amp > 0``)
+    plus per-cycle noise. Unlike the single bull-then-bear `_two_segment_series`
+    (which crosses a trend MA only once or twice, so a trend-follower makes
+    ~0 OOS trades and the whole run lands UNTESTABLE), a MULTI-cycle series
+    makes the trend-follower cross its SMA every cycle -- enough real
+    round-trip trades per fold that walk-forward is genuinely testable, while
+    sitting out each down-ramp keeps the strategy more bull-concentrated than
+    its fully-invested benchmark."""
+    rng = np.random.default_rng(seed)
+    segments = [np.array([100.0])]
+    for _ in range(n_cycles):
+        base = segments[-1][-1]
+        up_seg = base + np.linspace(0, up_amp, up) + rng.normal(0, noise, up)
+        segments.append(up_seg)
+        down_seg = up_seg[-1] + np.linspace(0, down_amp, down) + rng.normal(0, noise, down)
+        segments.append(down_seg)
+    close = np.concatenate(segments)
+    idx = pd.date_range("2010-01-01", periods=len(close), freq="D")
+    return pd.Series(close, index=idx, dtype=float)
+
+
+def build_bull_concentration_with_verdict() -> dict:
+    """The Phase 9 fixture: a NON-UNTESTABLE verdict AND a populated,
+    confirmed bull-concentration flag co-occurring in one real result -- the
+    combination none of the other fixtures cover (the two `bull_concentration_*`
+    fixtures both land UNTESTABLE, because their single-segment series gives
+    the trend-follower ~0 OOS trades). Found by a (period, cycles, seed,
+    noise) search over `_multi_cycle_series` + `_sma_trend_following_ir`;
+    this exact tuple lands verdict=SHAKY with excess=0.2023 (past the 0.20
+    confirmed threshold) and OOS trades in every fold, run through the REAL,
+    unmocked orchestrator. Deterministic (seeded RNG, no network). Pinned in
+    `test_robustness_fixtures.py`; the tuple is load-bearing (the search space
+    is cliff-like) and should not be casually swapped."""
+    close = _multi_cycle_series(n_cycles=4, up=120, down=90, seed=4, noise=5.0)
+    full_ir, assumptions = apply_defaults(_sma_trend_following_ir(50))
+    return run_robustness(
+        full_ir,
+        _price_data(close),
+        assumptions,
+        in_sample_bars=300,
+        out_of_sample_bars=150,
+        step_bars=150,
+        min_trades_for_confidence=3,
+    )
+
+
 def build_no_exit() -> dict:
     sparse_ir = {
         "asset": {"ticker": "SPY"},
@@ -295,6 +342,7 @@ def main() -> None:
     _dump("untestable", build_untestable())
     _dump("bull_concentration_confirmed", build_bull_concentration_confirmed())
     _dump("bull_concentration_provisional", build_bull_concentration_provisional())
+    _dump("bull_concentration_with_verdict", build_bull_concentration_with_verdict())
     _dump("no_exit", build_no_exit())
 
 
