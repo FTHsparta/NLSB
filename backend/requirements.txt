@@ -35,3 +35,5 @@ wrapt==2.2.2
 # Testing
 pytest==9.1.0
 httpx==0.28.1
+# Property-based fuzzing of the IR validation boundary (Phase 8B).
+hypothesis==6.155.7

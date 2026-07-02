@@ -1,5 +1,28 @@
 # Build Log
 
+## 2026-07-01 — Phase 8B: adversarial hardening of the IR boundary (backend)
+
+**What:** A red-team pass on the /confirm IR boundary before public exposure. /confirm accepts a *client-supplied* IR, so a hostile client can POST arbitrary JSON there without ever using the translator. Mostly new tests proving the boundary holds; four real holes were found and fixed. Security boundary unchanged: the LLM emits only validated IR JSON; no model output is ever exec'd/eval'd.
+
+**Orientation (authoritative):** Entry points — `interpreter.validate_ir` (jsonschema against `strategy_ir.schema.json`, `additionalProperties:false` at every level) and the interpreter's independent whitelist (`_ALLOWED_INDICATOR_TYPES`/`_ALLOWED_OPERATORS`). /confirm re-validates via `service.confirm_robustness` → `validate_ir` before `run_robustness`; the single deepest run point is `vbt.Portfolio.from_signals`. Translator: `{"unsupported": true}` returns immediately (1 call); otherwise a bounded `range(1, MAX_RETRIES+1)` loop (MAX_RETRIES=3) that ends in a clean `status="error"`. Starting count: 193 backend tests.
+
+**Holes found → fix → test (4):**
+1. **Deep nesting → RecursionError → 500.** ~200 `all_of` levels blew Python's recursion limit *inside* jsonschema, before it could reject. Fix: `abuse.enforce_ir_complexity(ir)` — an *iterative* (never-recursive) pre-validation walk capping depth/node-count → clean 422. Test: `test_ir_fuzzing.py` deep_nesting_400/5000 + `test_ir_property.py::test_arbitrary_nesting_depth_never_recursion_errors` (0–5000).
+2. **Period > data length → uncaught ValueError → 500.** A schema-valid huge period emptied the effective window; `psr_from_stats` then raised deep in robustness. Fix: `service._require_runnable_window` (after `validate_ir`) requires ≥`MIN_EFFECTIVE_BARS` (2) bars after warmup, else a clean `IRInterpreterError` (→400). Test: fuzz period_enormous/period_gt_data_length.
+3. **No body-size cap on /confirm.** Phase 8A's text cap didn't cover /confirm's IR. Fix: a Content-Length check in the request middleware → 413 over `NLSB_MAX_BODY_BYTES` (default 65536). Test: fuzz oversized-body (a byte-huge but node-small IR).
+4. **Non-finite numbers (NaN/Infinity) → 500.** A lenient client can send them (json.loads accepts them); jsonschema treats them as valid numbers, then `int(nan)` crashed in the sensitivity grid. Fix: folded a finiteness check into the same `enforce_ir_complexity` pass → clean 422. Test: `test_non_finite_numeric_operands_are_rejected_cleanly_before_the_engine` (nan/inf/-inf via raw body).
+
+**Pinned decisions (behavior was acceptable, now nailed down):**
+- **Unknown/extra keys are REJECTED, not stripped** — `additionalProperties:false` everywhere. At /confirm → 400; through the translator, extra keys fail validation, the retry loop re-asks, and after 3 attempts it returns the clean `error` path (`test_prompt_injection.py::test_extra_injection_key_is_rejected_by_schema_not_stripped`).
+- **Instruction-looking strings are carried INERTLY as data** — a schema-valid string operand like `"IGNORE ALL PREVIOUS INSTRUCTIONS…"` passes /translate as opaque data (never executed); if placed where an operand is expected it is rejected at /confirm by the interpreter as unresolvable. Pinned by the injection probes + fuzz `operand_out_of_vocab`.
+- Wrong top-level IR types (list/string/number/null) → pydantic 422 before any app code. Out-of-vocab indicator/operator names and lookalikes (`"RSI "`, `"rsi"`, `"__import__"`, `"eval"`, `"os.system"`, unicode homoglyphs, null bytes, RTL marks) → clean 400/422, engine never reached. Date-range abuse (end<start, far-future) → InsufficientDataError at the fetch boundary → 422.
+
+**INV coverage:** INV-1 (no fuzz input reaches the engine without full validation) — the fuzz suite hard-spies `vbt.Portfolio.from_signals` and asserts it is never reached for any hostile case. INV-2 (the boundary's only failure modes are clean rejections) — hypothesis property tests (650+ generated inputs across free-form JSON and IR-shaped fuzz) assert the boundary raises only `jsonschema.ValidationError` or `HTTPException`, never RecursionError/KeyError/TypeError. INV-3 — all 193 prior tests pass unmodified.
+
+**New env vars** (call-time reads; defaults): `NLSB_MAX_BODY_BYTES` (65536, request body cap), `NLSB_MAX_IR_DEPTH` (40), `NLSB_MAX_IR_NODES` (2000). New dep: `hypothesis==6.155.7`.
+
+**Tests:** +37 (30 hostile-IR fuzz, 3 hypothesis property, 4 injection probes) → **230 backend**, all green. Plus a skip-by-default live-LLM smoke script (`tests/smoke_injection_live.py`, non-`test_*` filename so it's never auto-collected; `NLSB_RUN_LIVE_SMOKE=1` + a real key to run) with 5 classic NL injections. No frontend or deployment work.
+
 ## 2026-07-01 — Phase 8A: abuse protection & boundary hardening (backend)
 
 **What:** Prepared the backend for public exposure without changing the security boundary — the LLM still emits only validated IR JSON, and no model-emitted code is ever executed. All new gating lives in `app/abuse.py`, composed in front of the existing route handlers in `app/main.py`; the translation/defaulting/rendering/backtest layers were not touched.

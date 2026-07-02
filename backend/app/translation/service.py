@@ -15,7 +15,7 @@ import pandas as pd
 from app.engine.backtest import BacktestResult, run_ir_backtest
 from app.robustness.robustness import run_robustness
 from app.translation.defaults import Assumption
-from app.translation.interpreter import validate_ir
+from app.translation.interpreter import IRInterpreterError, compute_ir_warmup, validate_ir
 from app.translation.renderer import render_confirmation
 from app.translation.translator import AnthropicLLMClient, LLMClient, translate_to_ir
 
@@ -23,6 +23,25 @@ from app.translation.translator import AnthropicLLMClient, LLMClient, translate_
 # ~0 commission, but slippage/spread is real.
 RETAIL_FEES = 0.0
 RETAIL_SLIPPAGE = 0.0005
+
+# A validated IR can still be unrunnable against the actual data: if an
+# indicator's warmup consumes (nearly) the whole price history -- a period
+# larger than the number of bars, or a date range shorter than the warmup --
+# the effective window is empty and the downstream stats raise deep in the
+# engine. Guard for it explicitly so it surfaces as a clean, named error
+# instead of an uncaught 500. Two bars is the floor any return/stat needs.
+MIN_EFFECTIVE_BARS = 2
+
+
+def _require_runnable_window(ir: dict, price_data: pd.DataFrame) -> None:
+    warmup = compute_ir_warmup(ir)
+    effective = len(price_data) - warmup
+    if effective < MIN_EFFECTIVE_BARS:
+        raise IRInterpreterError(
+            f"Indicator warmup needs {warmup} bars but only {len(price_data)} price "
+            f"bars are available, leaving {max(effective, 0)} to backtest. Use a longer "
+            "date range or a shorter indicator period."
+        )
 
 
 @dataclass
@@ -114,4 +133,5 @@ def confirm_robustness(
     assumption, not re-derived from the IR alone.
     """
     validate_ir(ir)
+    _require_runnable_window(ir, price_data)
     return run_robustness(ir, price_data, assumptions, fees=fees, slippage=slippage)

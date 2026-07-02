@@ -34,7 +34,9 @@ from slowapi.errors import RateLimitExceeded
 
 from app import abuse
 from app.abuse import (
+    body_length_exceeds_cap,
     confirm_rate_limit,
+    enforce_ir_complexity,
     enforce_text_size,
     enforce_ticker,
     limiter,
@@ -80,6 +82,21 @@ async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONR
 
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
+    # Body-size cap (all routes): reject an over-large declared Content-Length
+    # before the body is parsed. The equivalent of Phase 8A's text cap, now
+    # covering /confirm's client-supplied IR too.
+    if body_length_exceeds_cap(request.headers.get("content-length")):
+        request_logger.warning(
+            "%s %s -> 413 (body too large: %s bytes)",
+            request.method,
+            request.url.path,
+            request.headers.get("content-length"),
+        )
+        return JSONResponse(
+            status_code=413,
+            content={"detail": "Request body is too large. Please send a smaller request."},
+        )
+
     start = time.perf_counter()
     response = await call_next(request)
     duration_ms = (time.perf_counter() - start) * 1000
@@ -229,6 +246,10 @@ class ConfirmRequest(BaseModel):
 def confirm_route(
     request: Request, req: ConfirmRequest, price_fetcher=Depends(get_price_fetcher)
 ) -> dict:
+    # Structural cap BEFORE the recursive schema validator sees the IR, so a
+    # hostile deeply-nested tree fails fast with a clean 422 instead of a
+    # RecursionError-driven 500. Cheap; runs before any price fetch.
+    enforce_ir_complexity(req.ir)
     enforce_ticker(req.ticker)
 
     try:

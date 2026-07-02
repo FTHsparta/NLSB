@@ -18,6 +18,7 @@ app, and so `.env` changes take effect on restart without code edits.
 from __future__ import annotations
 
 import logging
+import math
 import os
 import re
 from datetime import datetime, timezone
@@ -167,6 +168,91 @@ def enforce_ticker(ticker: str) -> None:
             detail=f"{ticker!r} is not a valid ticker symbol. Use 1–10 uppercase "
             "letters, digits, '.', or '-' (e.g. SPY, BRK.B).",
         )
+
+
+# --- Request body size cap --------------------------------------------------
+
+
+def max_body_bytes() -> int:
+    return int(os.environ.get("NLSB_MAX_BODY_BYTES", "65536"))
+
+
+def body_length_exceeds_cap(content_length: str | None) -> bool:
+    """True when a declared Content-Length exceeds the cap. Absent/malformed
+    headers return False (the IR complexity cap below is the structural
+    backstop for a body that arrives without a declared length)."""
+    if not content_length:
+        return False
+    try:
+        return int(content_length) > max_body_bytes()
+    except (TypeError, ValueError):
+        return False
+
+
+# --- IR structural sanitization (pre-validation) ----------------------------
+#
+# `/confirm` takes a client-supplied IR and schema-validates it, but the
+# recursive schema validator (and the robustness engine downstream) trust
+# two things the JSON layer does not guarantee:
+#   * bounded nesting -- a deeply nested condition tree (~200 `all_of`
+#     levels) blows Python's recursion limit and turns into a
+#     RecursionError-driven 500 BEFORE the schema can reject it; and
+#   * finite numbers -- a lenient client can send NaN/Infinity (json.loads
+#     accepts them), which jsonschema treats as valid numbers but which
+#     crash later as `int(nan)` inside the sensitivity grid.
+# This single iterative pass (its own traversal can never recurse) rejects an
+# over-deep, over-large, or non-finite IR with a clean 422 before validation
+# or any engine work runs.
+
+
+def max_ir_depth() -> int:
+    return int(os.environ.get("NLSB_MAX_IR_DEPTH", "40"))
+
+
+def max_ir_nodes() -> int:
+    return int(os.environ.get("NLSB_MAX_IR_NODES", "2000"))
+
+
+def enforce_ir_complexity(ir: object) -> None:
+    """Reject an IR whose nesting depth or node count exceeds the cap, or that
+    contains a non-finite number, BEFORE the recursive schema validator sees
+    it. Iterative by construction so the guard itself cannot raise
+    RecursionError on hostile input."""
+    depth_cap = max_ir_depth()
+    node_cap = max_ir_nodes()
+    nodes = 0
+    stack: list[tuple[object, int]] = [(ir, 1)]
+    while stack:
+        node, depth = stack.pop()
+        nodes += 1
+        if depth > depth_cap:
+            logger.warning("rejected over-deep IR (depth > %d)", depth_cap)
+            raise HTTPException(
+                status_code=422,
+                detail="This strategy's entry/exit logic is nested too deeply. "
+                "Please simplify it.",
+            )
+        if nodes > node_cap:
+            logger.warning("rejected over-large IR (nodes > %d)", node_cap)
+            raise HTTPException(
+                status_code=422,
+                detail="This strategy has too many elements to process. Please simplify it.",
+            )
+        # bool is a subclass of int but never float; only genuine floats can be
+        # NaN/Infinity, so this rejects exactly the non-finite numeric case.
+        if isinstance(node, float) and not math.isfinite(node):
+            logger.warning("rejected non-finite number in IR (%r)", node)
+            raise HTTPException(
+                status_code=422,
+                detail="Strategy contains a non-finite number (NaN or Infinity), "
+                "which isn't a valid value.",
+            )
+        if isinstance(node, dict):
+            for value in node.values():
+                stack.append((value, depth + 1))
+        elif isinstance(node, list):
+            for value in node:
+                stack.append((value, depth + 1))
 
 
 # --- Logging setup ----------------------------------------------------------
