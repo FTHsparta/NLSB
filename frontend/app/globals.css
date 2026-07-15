@@ -81,6 +81,38 @@
 
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+
+  /* Motion tokens (Phase 11). Values mirror lib/motion.ts -- that module is
+     the single source of truth; change both together. `backwards` fill keeps
+     stagger-delayed elements invisible until their delay elapses. All usage
+     goes through the motion-safe: variant, so prefers-reduced-motion gets an
+     instant, animation-free render of the same content. */
+  --animate-enter: enter 200ms cubic-bezier(0.2, 0, 0, 1) backwards;
+  --animate-enter-slide: enter-slide 260ms cubic-bezier(0.2, 0, 0, 1) backwards;
+  --animate-pulse-soft: pulse-soft 2.2s ease-in-out infinite;
+}
+
+@keyframes enter {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes enter-slide {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+}
+
+@keyframes pulse-soft {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
 }
 
 body {

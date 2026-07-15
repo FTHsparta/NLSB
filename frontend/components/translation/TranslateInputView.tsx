@@ -2,48 +2,33 @@
 
 import { useState } from "react";
 
+import { EXAMPLE_STRATEGIES } from "@/lib/examples";
+import { MOTION } from "@/lib/motion";
+
 export interface TranslateInputViewProps {
   onSubmit: (nlText: string) => void;
   disabled?: boolean;
+  /** Prefill (e.g. an example carried from the landing page via ?s=). */
+  initialText?: string;
 }
 
 const STRATEGY_PLACEHOLDER =
   "Buy SPY when RSI(14) drops below 30, sell when it rises above 70.";
 
-/** Beginner-friendly prefills -- each has a clean entry AND exit so none
- * trips the missing-exit SEVERITY_WARNING when actually translated. */
-const EXAMPLE_STRATEGIES: { label: string; text: string }[] = [
-  {
-    label: "Golden cross (SPY)",
-    text: "Buy SPY when SMA(50) crosses above SMA(200), sell when SMA(50) crosses below SMA(200).",
-  },
-  {
-    label: "RSI mean reversion (QQQ)",
-    text: "Buy QQQ when RSI(14) drops below 30, sell when RSI(14) rises above 70.",
-  },
-  {
-    label: "200-day trend follow (AAPL)",
-    text: "Buy AAPL when close crosses above SMA(200), sell when close crosses below SMA(200).",
-  },
-  {
-    label: "20/50 crossover (MSFT)",
-    text: "Buy MSFT when SMA(20) crosses above SMA(50), sell when SMA(20) crosses below SMA(50).",
-  },
-];
-
 /** Plain-English strategy input -- the app's front door. Submitting calls
  * `/translate` (via the parent flow) -- never anything that runs a backtest. */
-export function TranslateInputView({ onSubmit, disabled }: TranslateInputViewProps) {
-  const [text, setText] = useState("");
+export function TranslateInputView({ onSubmit, disabled, initialText }: TranslateInputViewProps) {
+  const [text, setText] = useState(initialText ?? "");
 
   return (
     <div data-testid="translate-input-view" className="space-y-8">
       <header className="space-y-2">
-        <h1 className="text-2xl font-semibold tracking-tight text-foreground">NLSB</h1>
+        <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+          Backtest a strategy
+        </h1>
         <p className="max-w-prose text-sm text-muted-foreground">
-          Describe a trading strategy in plain English and get an honest backtest --
-          one built to surface what other backtesters hide, not flatter you with a
-          curve.
+          Describe it in plain English. You&apos;ll review every assumption before
+          anything runs.
         </p>
       </header>
 
@@ -80,7 +65,7 @@ export function TranslateInputView({ onSubmit, disabled }: TranslateInputViewPro
                 data-testid="example-strategy"
                 disabled={disabled}
                 onClick={() => setText(example.text)}
-                className="rounded-full border border-border bg-card px-3 py-1.5 text-xs font-medium text-foreground disabled:opacity-50"
+                className={`rounded-full border border-border bg-card px-3 py-1.5 text-xs font-medium text-foreground disabled:opacity-50 ${MOTION.interactive} hover:border-foreground/40 hover:bg-muted`}
               >
                 {example.label}
               </button>
@@ -92,7 +77,7 @@ export function TranslateInputView({ onSubmit, disabled }: TranslateInputViewPro
           type="submit"
           data-testid="translate-submit"
           disabled={disabled || !text.trim()}
-          className="rounded-md bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground disabled:opacity-50"
+          className={`rounded-md bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground disabled:opacity-50 ${MOTION.interactive} hover:opacity-90 active:opacity-80`}
         >
           Translate
         </button>

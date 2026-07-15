@@ -13,6 +13,7 @@ import { describe, expect, it, vi } from "vitest";
 import { AssumptionsView } from "../AssumptionsView";
 import { TranslateFlow } from "../TranslateFlow";
 import { TranslateInputView } from "../TranslateInputView";
+import { SiteShell } from "@/components/chrome/SiteShell";
 import type { TranslationApi } from "@/lib/translation/api";
 import type { TranslationPayload } from "@/lib/translation/types";
 import type { RobustnessResult } from "@/lib/robustness/types";
@@ -418,8 +419,16 @@ describe("CONTRACT 10 (Phase 9): double-submit protection -- an in-flight reques
 
 describe("CONTRACT 11 (Phase 9): the disclaimer footer is present on every screen", () => {
   it("renders on entry, at the gate, and on the results surface (plus the fuller results block)", async () => {
+    // Phase 11 render-entry update ONLY: the footer moved from inside
+    // TranslateFlow to the shared SiteShell (so it is on every ROUTE by
+    // construction, not just every flow state). Rendering the flow inside
+    // the real shell keeps every assertion below byte-identical.
     const api = fakeApi();
-    render(<TranslateFlow api={api} />);
+    render(
+      <SiteShell>
+        <TranslateFlow api={api} />
+      </SiteShell>,
+    );
 
     // entry
     expect(screen.getByTestId("disclaimer-footer")).toBeInTheDocument();

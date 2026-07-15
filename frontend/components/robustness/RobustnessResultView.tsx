@@ -1,6 +1,7 @@
 import type { RobustnessResult } from "@/lib/robustness/types";
 import { ResultsDisclaimer } from "@/components/chrome/Disclaimer";
 import { MethodologyNote } from "@/components/chrome/MethodologyNote";
+import { MOTION, staggerDelay } from "@/lib/motion";
 import { BuyHoldComparison } from "./BuyHoldComparison";
 import { RobustnessPanel } from "./RobustnessPanel";
 import { VerdictCard } from "./VerdictCard";
@@ -68,7 +69,7 @@ export function RobustnessResultView({ result }: RobustnessResultViewProps) {
       <div
         data-testid="results-fallback"
         role="alert"
-        className="rounded-lg border border-border bg-card p-6 text-sm text-foreground"
+        className={`rounded-lg border border-border bg-card p-6 text-sm text-foreground ${MOTION.enterSlide}`}
       >
         <p>These results couldn&apos;t be displayed — raw output below.</p>
         <details className="mt-3">
@@ -87,23 +88,39 @@ export function RobustnessResultView({ result }: RobustnessResultViewProps) {
   if (result.kind === "no_exit") {
     return (
       <>
-        <BuyHoldComparison noExit={result.no_exit} />
-        <ResultsDisclaimer />
+        <div className={MOTION.enterSlide} style={staggerDelay(0)}>
+          <BuyHoldComparison noExit={result.no_exit} />
+        </div>
+        <div className={MOTION.enterSlide} style={staggerDelay(1)}>
+          <ResultsDisclaimer />
+        </div>
       </>
     );
   }
 
+  // Results reveal (Phase 11): panels stagger in, verdict card first. The
+  // stagger order is DOM position and NOTHING else -- a PASS card and a
+  // LIKELY_OVERFIT card get byte-identical animation classes and delays
+  // (display-side corollary: motion is never a judgment channel).
   return (
     <div data-testid="robustness-result-view">
-      <VerdictCard verdict={result.verdict.verdict} reasons={result.verdict.reasons} />
-      <RobustnessPanel
-        sensitivity={result.sensitivity}
-        walkForward={result.walk_forward}
-        deflatedSharpe={result.deflated_sharpe}
-        regime={result.regime}
-      />
-      <MethodologyNote />
-      <ResultsDisclaimer />
+      <div className={MOTION.enterSlide} style={staggerDelay(0)}>
+        <VerdictCard verdict={result.verdict.verdict} reasons={result.verdict.reasons} />
+      </div>
+      <div className={MOTION.enterSlide} style={staggerDelay(1)}>
+        <RobustnessPanel
+          sensitivity={result.sensitivity}
+          walkForward={result.walk_forward}
+          deflatedSharpe={result.deflated_sharpe}
+          regime={result.regime}
+        />
+      </div>
+      <div className={MOTION.enterSlide} style={staggerDelay(2)}>
+        <MethodologyNote />
+      </div>
+      <div className={MOTION.enterSlide} style={staggerDelay(3)}>
+        <ResultsDisclaimer />
+      </div>
     </div>
   );
 }

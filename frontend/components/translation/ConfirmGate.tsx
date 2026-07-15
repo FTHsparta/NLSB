@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 
+import { MOTION } from "@/lib/motion";
+
 export interface ConfirmGateProps {
   defaultTicker: string;
   onConfirm: (start: string, end: string | null) => void;
@@ -46,7 +48,7 @@ export function ConfirmGate({ defaultTicker, onConfirm, disabled }: ConfirmGateP
         data-testid="confirm-run-button"
         disabled={disabled}
         onClick={() => onConfirm(start, end || null)}
-        className="rounded-md bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground disabled:opacity-50"
+        className={`rounded-md bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground disabled:opacity-50 ${MOTION.interactive} hover:opacity-90 active:opacity-80`}
       >
         Run this backtest
       </button>

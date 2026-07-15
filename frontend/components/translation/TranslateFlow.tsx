@@ -2,8 +2,8 @@
 
 import { useReducer, useState } from "react";
 import { RobustnessResultView } from "@/components/robustness/RobustnessResultView";
-import { DisclaimerFooter } from "@/components/chrome/Disclaimer";
 import { CONFIRM_STAGES, ProgressIndicator } from "@/components/chrome/ProgressIndicator";
+import { MOTION } from "@/lib/motion";
 import type { RobustnessResult } from "@/lib/robustness/types";
 import { httpTranslationApi, type TranslationApi } from "@/lib/translation/api";
 import { describeError } from "@/lib/translation/errors";
@@ -15,6 +15,8 @@ import { TranslateInputView } from "./TranslateInputView";
 export interface TranslateFlowProps {
   /** Defaults to the real HTTP implementation; tests inject a fake. */
   api?: TranslationApi;
+  /** Prefill for the strategy box (landing-page example via /backtest?s=). */
+  initialText?: string;
 }
 
 /**
@@ -116,7 +118,7 @@ function reducer(state: FlowState, action: FlowAction): FlowState {
   }
 }
 
-export function TranslateFlow({ api = httpTranslationApi }: TranslateFlowProps) {
+export function TranslateFlow({ api = httpTranslationApi, initialText }: TranslateFlowProps) {
   const [state, dispatch] = useReducer(reducer, INITIAL_STATE);
 
   async function handleTranslate(nlText: string) {
@@ -173,15 +175,17 @@ export function TranslateFlow({ api = httpTranslationApi }: TranslateFlowProps) 
       )}
 
       {state.phase !== "results" && (
-        <TranslateInputView onSubmit={handleTranslate} disabled={isTranslating} />
+        <TranslateInputView onSubmit={handleTranslate} disabled={isTranslating} initialText={initialText} />
       )}
 
       {isTranslating && (
-        <ProgressIndicator testId="translating-indicator" label="Translating your strategy…" />
+        <div className={MOTION.enter}>
+          <ProgressIndicator testId="translating-indicator" label="Translating your strategy…" />
+        </div>
       )}
 
       {atGate && (
-        <div data-testid="gate" className="space-y-8">
+        <div data-testid="gate" className={`space-y-8 ${MOTION.enterSlide}`}>
           <header className="space-y-1 border-b border-border pb-6">
             <h2 className="text-xl font-semibold text-foreground">Review before you run it</h2>
             <p className="text-sm text-muted-foreground">
@@ -210,12 +214,14 @@ export function TranslateFlow({ api = httpTranslationApi }: TranslateFlowProps) 
             />
 
             {isConfirming && (
-              <ProgressIndicator
-                testId="confirming-indicator"
-                label="Running backtest and robustness checks…"
-                stages={CONFIRM_STAGES}
-                showElapsed
-              />
+              <div className={MOTION.enter}>
+                <ProgressIndicator
+                  testId="confirming-indicator"
+                  label="Running backtest and robustness checks…"
+                  stages={CONFIRM_STAGES}
+                  showElapsed
+                />
+              </div>
             )}
 
             <div className="space-y-2">
@@ -236,8 +242,6 @@ export function TranslateFlow({ api = httpTranslationApi }: TranslateFlowProps) 
       )}
 
       {state.phase === "results" && state.result && <RobustnessResultView result={state.result} />}
-
-      <DisclaimerFooter />
     </div>
   );
 }
@@ -257,7 +261,7 @@ export function TranslateFlow({ api = httpTranslationApi }: TranslateFlowProps) 
  */
 function ErrorBanner({ testId, message, detail }: { testId: string; message: string; detail?: string }) {
   return (
-    <div data-testid={testId} role="alert" className="rounded-lg border-2 border-foreground/40 bg-muted p-4 text-foreground">
+    <div data-testid={testId} role="alert" className={`rounded-lg border-2 border-foreground/40 bg-muted p-4 text-foreground ${MOTION.enterSlide}`}>
       <p data-testid={`${testId}-message`}>{message}</p>
       {detail && (
         <details className="mt-2">
@@ -300,7 +304,7 @@ function CorrectionBox({ onSubmit, disabled }: { onSubmit: (text: string) => voi
         type="submit"
         data-testid="correction-submit"
         disabled={disabled || !text.trim()}
-        className="rounded-md border border-border px-3 py-1.5 text-sm text-foreground disabled:opacity-50"
+        className={`rounded-md border border-border px-3 py-1.5 text-sm text-foreground disabled:opacity-50 ${MOTION.interactive} hover:border-foreground/40 hover:bg-muted`}
       >
         Submit correction
       </button>

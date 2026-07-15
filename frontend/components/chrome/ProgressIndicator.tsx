@@ -2,6 +2,9 @@
 
 import { useEffect, useState } from "react";
 
+import { MOTION } from "@/lib/motion";
+import { useReducedMotion } from "@/lib/useReducedMotion";
+
 export interface ProgressStage {
   /** Show this stage's text once elapsed seconds reach `after`. */
   after: number;
@@ -34,13 +37,23 @@ function currentStage(stages: ProgressStage[], elapsed: number): string | null {
 }
 
 /**
- * A monochrome, indeterminate progress indicator (Phase 9 chrome). It makes
- * a wait honest, not precise: an indeterminate spinner + a steady label +
- * optional activity sub-labels + an elapsed counter. It carries NO saturated
- * color (INV-2) -- prominence and motion, never hue.
+ * A monochrome, indeterminate progress indicator (Phase 9 chrome; Phase 11
+ * motion pass). It makes a wait honest, not precise: an indeterminate
+ * spinner + a steady label + optional activity sub-labels + an elapsed
+ * counter. It carries NO saturated color (INV-2) -- prominence and motion,
+ * never hue. Still NO fake percentage/progress bar: indeterminate + honest
+ * stage text remains the design.
+ *
+ * Under prefers-reduced-motion the spinner becomes a static glyph and the
+ * stage label's soft pulse never applies (the pulse class is motion-safe
+ * gated in CSS as well; the hook handles the spinner, which has no
+ * sensible "static spin" rendering). All timing logic -- the elapsed tick,
+ * the stage thresholds -- is identical in both modes: motion is
+ * presentation, never behavior.
  */
 export function ProgressIndicator({ testId, label, stages, showElapsed }: ProgressIndicatorProps) {
   const [elapsed, setElapsed] = useState(0);
+  const reducedMotion = useReducedMotion();
 
   useEffect(() => {
     // Only tick when we actually display time-driven content.
@@ -58,14 +71,23 @@ export function ProgressIndicator({ testId, label, stages, showElapsed }: Progre
       aria-live="polite"
       className="flex items-start gap-3 rounded-lg border border-border bg-card p-4"
     >
-      <span
-        aria-hidden="true"
-        className="mt-0.5 h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-foreground/25 border-t-foreground"
-      />
+      {reducedMotion ? (
+        <span
+          aria-hidden="true"
+          data-testid={`${testId}-static-glyph`}
+          className="mt-1 h-3 w-3 shrink-0 rounded-full bg-foreground/40"
+        />
+      ) : (
+        <span
+          aria-hidden="true"
+          data-testid={`${testId}-spinner`}
+          className="mt-0.5 h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-foreground/25 border-t-foreground"
+        />
+      )}
       <div className="space-y-1">
         <p className="text-sm font-medium text-foreground">{label}</p>
         {stage && (
-          <p data-testid={`${testId}-stage`} className="text-sm text-muted-foreground">
+          <p data-testid={`${testId}-stage`} className={`text-sm text-muted-foreground ${MOTION.pulse}`}>
             {stage}
           </p>
         )}
