@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useSyncExternalStore } from "react";
 
 /**
  * True when the OS asks for reduced motion (part of the Phase 11 motion
@@ -10,21 +10,37 @@ import { useEffect, useState } from "react";
  * swapping a spinner for a static glyph). Defensive about environments
  * without matchMedia; defaults to false.
  */
+const QUERY = "(prefers-reduced-motion: reduce)";
+
+function subscribe(onChange: () => void): () => void {
+  if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
+    return () => {};
+  }
+  try {
+    const query = window.matchMedia(QUERY);
+    query.addEventListener?.("change", onChange);
+    return () => query.removeEventListener?.("change", onChange);
+  } catch {
+    // No matchMedia support: keep motion on; CSS motion-safe still governs.
+    return () => {};
+  }
+}
+
+function getSnapshot(): boolean {
+  if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
+    return false;
+  }
+  try {
+    return window.matchMedia(QUERY).matches;
+  } catch {
+    return false;
+  }
+}
+
+function getServerSnapshot(): boolean {
+  return false;
+}
+
 export function useReducedMotion(): boolean {
-  const [reduced, setReduced] = useState(false);
-
-  useEffect(() => {
-    if (typeof window === "undefined" || typeof window.matchMedia !== "function") return;
-    try {
-      const query = window.matchMedia("(prefers-reduced-motion: reduce)");
-      setReduced(query.matches);
-      const onChange = (e: MediaQueryListEvent) => setReduced(e.matches);
-      query.addEventListener?.("change", onChange);
-      return () => query.removeEventListener?.("change", onChange);
-    } catch {
-      // No matchMedia support: keep motion on; CSS motion-safe still governs.
-    }
-  }, []);
-
-  return reduced;
+  return useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
 }
