@@ -55,7 +55,22 @@ abuse.configure_logging()
 logger = logging.getLogger("app.main")
 request_logger = logging.getLogger("app.request")
 
-app = FastAPI(title="NLSB API")
+def docs_enabled() -> bool:
+    """Auto-docs are a dev affordance; in production they hand any visitor
+    the full machine-readable API surface (openapi.json matters as much as
+    the two UIs). NLSB_ENV follows the NLSB_* env pattern from `app.abuse`;
+    only the literal value "production" flips this off -- unset/anything
+    else keeps the local dev experience unchanged."""
+    return os.environ.get("NLSB_ENV", "").lower() != "production"
+
+
+_docs = docs_enabled()
+app = FastAPI(
+    title="NLSB API",
+    docs_url="/docs" if _docs else None,
+    redoc_url="/redoc" if _docs else None,
+    openapi_url="/openapi.json" if _docs else None,
+)
 
 
 # --- CORS (Phase 10) ---------------------------------------------------------
