@@ -3,7 +3,7 @@
 import { useReducer, useState } from "react";
 import { RobustnessResultView } from "@/components/robustness/RobustnessResultView";
 import { CONFIRM_STAGES, ProgressIndicator } from "@/components/chrome/ProgressIndicator";
-import { MOTION } from "@/lib/motion";
+import { MOTION, staggerDelay } from "@/lib/motion";
 import type { RobustnessResult } from "@/lib/robustness/types";
 import { httpTranslationApi, type TranslationApi } from "@/lib/translation/api";
 import { describeError } from "@/lib/translation/errors";
@@ -44,10 +44,19 @@ interface FlowState {
   translation: TranslationPayload | null;
   result: RobustnessResult | null;
   error: ActionError | null;
+  /**
+   * Seed for the strategy textarea on (re)mount. The loading view unmounts
+   * `TranslateInputView` during "translating", destroying its internal text
+   * state, so the submitted text is carried here and seeded back when the
+   * input remounts (TRANSLATE_ERROR, unsupported). `null` means "defer to
+   * the ?s= prefill prop"; RESET sets `""` so a reset input is empty even
+   * when the page was opened with a prefill.
+   */
+  draft: string | null;
 }
 
 type FlowAction =
-  | { type: "TRANSLATE_START" }
+  | { type: "TRANSLATE_START"; nlText: string }
   | { type: "TRANSLATE_SUCCESS"; nlText: string; payload: TranslationPayload }
   | { type: "TRANSLATE_ERROR"; message: string; detail?: string }
   | { type: "CORRECT_START" }
@@ -55,7 +64,8 @@ type FlowAction =
   | { type: "CORRECT_ERROR"; message: string; detail?: string }
   | { type: "CONFIRM_START" }
   | { type: "CONFIRM_SUCCESS"; payload: RobustnessResult }
-  | { type: "CONFIRM_ERROR"; message: string; detail?: string };
+  | { type: "CONFIRM_ERROR"; message: string; detail?: string }
+  | { type: "RESET" };
 
 const INITIAL_STATE: FlowState = {
   phase: "idle",
@@ -63,12 +73,13 @@ const INITIAL_STATE: FlowState = {
   translation: null,
   result: null,
   error: null,
+  draft: null,
 };
 
 function reducer(state: FlowState, action: FlowAction): FlowState {
   switch (action.type) {
     case "TRANSLATE_START":
-      return { ...state, phase: "translating", error: null };
+      return { ...state, phase: "translating", draft: action.nlText, error: null };
     case "TRANSLATE_SUCCESS":
       return {
         ...state,
@@ -113,6 +124,12 @@ function reducer(state: FlowState, action: FlowAction): FlowState {
         phase: "gate",
         error: { action: "confirm", message: action.message, detail: action.detail },
       };
+    case "RESET":
+      // Whole-machine reset: back to a clean idle. `result` is cleared and
+      // `phase` leaves "results" in the same dispatch, so the results
+      // surface (gated on BOTH) cannot survive the transition. `draft: ""`
+      // (not null) makes the remounted input empty even under a ?s= prefill.
+      return { ...INITIAL_STATE, draft: "" };
     default:
       return state;
   }
@@ -126,7 +143,7 @@ export function TranslateFlow({ api = httpTranslationApi, initialText }: Transla
     // buttons also disable during a request, but this makes it structural,
     // not merely visual -- a programmatic or racing double-fire is a no-op.
     if (state.phase === "translating") return;
-    dispatch({ type: "TRANSLATE_START" });
+    dispatch({ type: "TRANSLATE_START", nlText });
     try {
       const response = await api.translate(nlText);
       dispatch({ type: "TRANSLATE_SUCCESS", nlText, payload: response });
@@ -166,7 +183,15 @@ export function TranslateFlow({ api = httpTranslationApi, initialText }: Transla
   const isTranslating = state.phase === "translating";
   const isCorrecting = state.phase === "correcting";
   const isConfirming = state.phase === "confirming";
-  const atGate = state.translation?.status === "ok" && !!state.translation.restatement && state.phase !== "results";
+  // The full-surface loading treatment: while /translate or /confirm is in
+  // flight the input/gate surface is REPLACED (unmounted, not dimmed) by a
+  // centered progress view -- the wait is the page's only content, never
+  // progress text appended under a still-visible surface. "correcting" is
+  // deliberately NOT a loading phase: it's an in-gate sub-loop whose
+  // disabled correction box is the right in-place treatment.
+  const isLoading = isTranslating || isConfirming;
+  const atGate =
+    state.translation?.status === "ok" && !!state.translation.restatement && state.phase !== "results" && !isLoading;
 
   return (
     <div data-testid="translate-flow" className="mx-auto max-w-2xl space-y-8 p-6">
@@ -174,13 +199,28 @@ export function TranslateFlow({ api = httpTranslationApi, initialText }: Transla
         <ErrorBanner testId="translate-error" message={state.error.message} detail={state.error.detail} />
       )}
 
-      {state.phase !== "results" && (
-        <TranslateInputView onSubmit={handleTranslate} disabled={isTranslating} initialText={initialText} />
+      {state.phase !== "results" && !isLoading && (
+        <TranslateInputView
+          onSubmit={handleTranslate}
+          disabled={isTranslating}
+          initialText={state.draft ?? initialText}
+        />
       )}
 
       {isTranslating && (
-        <div className={MOTION.enter}>
+        <div data-testid="loading-view" className={`flex min-h-[40vh] items-center justify-center ${MOTION.enter}`}>
           <ProgressIndicator testId="translating-indicator" label="Translating your strategy…" />
+        </div>
+      )}
+
+      {isConfirming && (
+        <div data-testid="loading-view" className={`flex min-h-[40vh] items-center justify-center ${MOTION.enter}`}>
+          <ProgressIndicator
+            testId="confirming-indicator"
+            label="Running backtest and robustness checks…"
+            stages={CONFIRM_STAGES}
+            showElapsed
+          />
         </div>
       )}
 
@@ -213,17 +253,6 @@ export function TranslateFlow({ api = httpTranslationApi, initialText }: Transla
               disabled={isConfirming}
             />
 
-            {isConfirming && (
-              <div className={MOTION.enter}>
-                <ProgressIndicator
-                  testId="confirming-indicator"
-                  label="Running backtest and robustness checks…"
-                  stages={CONFIRM_STAGES}
-                  showElapsed
-                />
-              </div>
-            )}
-
             <div className="space-y-2">
               <p className="text-sm font-medium text-foreground">Not right? Correct it instead.</p>
               {state.error?.action === "correct" && (
@@ -235,13 +264,32 @@ export function TranslateFlow({ api = httpTranslationApi, initialText }: Transla
         </div>
       )}
 
-      {state.phase !== "results" && state.translation && state.translation.status !== "ok" && (
+      {state.phase !== "results" && !isLoading && state.translation && state.translation.status !== "ok" && (
         <p data-testid="translate-flow-message" className="text-foreground">
           {state.translation.message}
         </p>
       )}
 
-      {state.phase === "results" && state.result && <RobustnessResultView result={state.result} />}
+      {state.phase === "results" && state.result && (
+        <>
+          <RobustnessResultView result={state.result} />
+          {/* A flow control, not part of the result: lives here (after the
+              renderer, dispatching into the state machine) so
+              RobustnessResultView stays a pure renderer of backend judgment.
+              Secondary monochrome styling -- it must not compete with the
+              verdict. Constant classes/delay: motion stays judgment-blind. */}
+          <div className={MOTION.enterSlide} style={staggerDelay(4)}>
+            <button
+              type="button"
+              data-testid="reset-flow"
+              onClick={() => dispatch({ type: "RESET" })}
+              className={`rounded-md border border-border px-4 py-2 text-sm text-foreground ${MOTION.interactive} hover:border-foreground/40 hover:bg-muted`}
+            >
+              Run another backtest
+            </button>
+          </div>
+        </>
+      )}
     </div>
   );
 }
