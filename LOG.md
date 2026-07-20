@@ -669,3 +669,97 @@ divergence" script makes sense).
 8.26% / Sharpe 0.67 / max drawdown -28.32% / win rate 93.75%. Without costs:
 271.89% / 8.36% / 0.68 / -28.32% / 93.75%. (Numbers will drift as more bars
 accumulate over time — this is a snapshot, not a target to match.)
+
+## 2026-07-15 — Phase 12: Deployment (backend to Railway, frontend to Vercel)
+
+NLSB is live. Getting there was less about new code than about discovering
+which assumptions only hold on my own machine — every failure in this phase
+was configuration meeting reality, and each one taught the same lesson from
+a different angle: exactness is everything at a boundary.
+
+**Getting the repo public first.** The remote turned out to hold an older,
+unrelated history, so making local canonical meant a force-push — but not
+before rescuing the one asset only the remote had (the architecture
+diagram) and running a secret scan across all history. The scan's single
+hit was the deliberately fake key inside the health endpoint's own
+leak test, which is the right kind of grep result. Force-push is normally
+the reckless option; with no collaborators and strictly-superseded remote
+work, it was the correct one. The moment before first publish is the one
+free chance to have never leaked a secret — scan before push, not after.
+
+**CI's first real run failed honestly.** A lint error (setState-in-effect
+in the reduced-motion hook) that "passed" locally had never passed at all —
+the local run piped output through `tail` and read the pipe's exit code,
+not eslint's. The fix was better than the workaround: `useSyncExternalStore`
+is the purpose-built primitive for subscribing to a media query, and it
+removed a mount-time double render while satisfying the rule. Lesson twice
+over: check the exit status you think you're checking, and when a linter
+complains about a pattern, sometimes the pattern really is the problem.
+
+**Deploy failures, in order of appearance:** Railpack built a Python-less
+container because the root directory wasn't set (a monorepo isn't
+self-announcing); the health endpoint reported `anthropic_key_present:
+false` because dashboard variables are the production replacement for
+`.env` and nobody had filled them in — that field existing in the health
+check is exactly why it exists; the frontend 404'd its own domain because
+the API base URL was set without `https://`, which silently turns an
+absolute URL into a relative path; and CORS rejected the first real
+cross-origin call because the allowlisted origin was a Vercel per-branch
+alias while the browser sat on a per-deployment hash URL. Origins match
+exactly or not at all — the allowlist wants the canonical production
+domain, and so does the address bar.
+
+**Also closed:** FastAPI's auto-docs (`/docs`, `/redoc`, and — the one
+people forget — `/openapi.json`) are now disabled in production behind
+`NLSB_ENV`, matching the existing env-var family. An interactive console
+inviting strangers to script against the API bypasses the gate flow for
+zero upside. Suite 239 → 241, with the test reloading the module cleanly
+so no other test file inherits production mode.
+
+The friendly-error layer earned its keep on day one: its first production
+save turned a raw HTML 404 dump into a calm one-line message with the guts
+collapsed under "technical details." Built two sessions ago on a hunch;
+vindicated before launch.
+
+Next: the flow's loading and reset UX, then mobile.
+
+## 2026-07-19 — Phase 13: Flow UX (loading view, reset) and mobile pass
+
+Two gaps a stranger would hit in their first minute: during a run, progress
+text rendered beneath a still-visible input instead of taking the stage;
+and after results, there was no way to run another strategy short of
+finding the nav wordmark.
+
+**Loading became a real phase.** `translating` and `confirming` now unmount
+the input/gate surface entirely and mount a centered loading view hosting
+the same staged-progress indicators — same stages, same elapsed counter,
+still no fake percentages. The subtlety this forced was state-preserving:
+unmounting the input destroys its text, so the submitted strategy now rides
+through the reducer as a `draft` field, and a failed translate hands back
+the input with the user's words intact. `correcting` deliberately stayed
+in-place — a disabled correction box inside the gate is the right treatment
+for an in-gate sub-loop.
+
+**Reset is a state-machine citizen.** "Run another backtest" dispatches a
+single `RESET` action returning to initial state. Because the results
+surface is gated on `phase === "results"`, stale results structurally
+cannot survive the transition — asserted, not hoped. The button lives in
+the flow, after the renderer, keeping the renderer a pure display of
+backend judgment.
+
+**The mobile pass found exactly one true overflow** — the gate's
+side-by-side date inputs at 360px — which now stack below `sm:`. Everything
+else was fitting: tables gained `overflow-x-auto` wrappers so narrow
+screens scroll the table inside its card rather than the page; every
+action and chip gained 44px touch targets on mobile; the nav got the
+`-m-3 p-3` trick, growing thumb hit-areas with zero layout shift. Desktop
+is visually unchanged by construction — base styles are mobile, `sm:`
+restores the desktop values. The disclaimer stays `text-xs` on purpose:
+legal fine print earns exactly that much visual weight.
+
+Suite: frontend 108 → 122 across both passes (+6 flow UX, +8 responsive
+mechanics), all prior tests unchanged — no pinned assertion touched.
+tsc, eslint, next build clean throughout.
+
+Next: on-device verification, production confirm wall-clock, analytics
+toggle, custom domain decision — then the launch post.
