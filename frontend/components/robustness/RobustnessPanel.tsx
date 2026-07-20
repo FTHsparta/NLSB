@@ -22,8 +22,8 @@ export interface RobustnessPanelProps {
 export function RobustnessPanel({ sensitivity, walkForward, deflatedSharpe, regime }: RobustnessPanelProps) {
   return (
     <section data-testid="robustness-panel" className="mt-8 space-y-6 text-sm">
-      <details data-testid="section-walk-forward" className="rounded-lg border border-border bg-card p-6">
-        <summary className="cursor-pointer font-medium text-foreground">Walk-forward validation</summary>
+      <details data-testid="section-walk-forward" className="rounded-lg border border-border bg-card p-4 sm:p-6">
+        <summary className="cursor-pointer py-2 font-medium text-foreground sm:py-0">Walk-forward validation</summary>
         <div className="mt-4 space-y-2 text-muted-foreground">
           <p>
             Aggregate in-sample Sharpe:{" "}
@@ -43,7 +43,11 @@ export function RobustnessPanel({ sensitivity, walkForward, deflatedSharpe, regi
               {formatNumberOrNA(walkForward.degradation)}
             </span>
           </p>
-          <table className="mt-3 w-full text-left">
+          {/* Tables scroll inside their own container on narrow screens
+              (min-w keeps columns readable); the page itself never scrolls
+              horizontally. */}
+          <div className="mt-3 overflow-x-auto">
+            <table className="w-full min-w-[26rem] text-left">
             <thead>
               <tr className="border-b border-border">
                 <th className="py-2 pr-3 font-medium">Fold</th>
@@ -66,13 +70,15 @@ export function RobustnessPanel({ sensitivity, walkForward, deflatedSharpe, regi
                 </tr>
               ))}
             </tbody>
-          </table>
+            </table>
+          </div>
         </div>
       </details>
 
-      <details data-testid="section-sensitivity" className="rounded-lg border border-border bg-card p-6">
-        <summary className="cursor-pointer font-medium text-foreground">Parameter sensitivity</summary>
-        <table className="mt-4 w-full text-left text-muted-foreground">
+      <details data-testid="section-sensitivity" className="rounded-lg border border-border bg-card p-4 sm:p-6">
+        <summary className="cursor-pointer py-2 font-medium text-foreground sm:py-0">Parameter sensitivity</summary>
+        <div className="mt-4 overflow-x-auto">
+          <table className="w-full min-w-[22rem] text-left text-muted-foreground">
           <thead>
             <tr className="border-b border-border">
               <th className="py-2 pr-3 font-medium">Parameter</th>
@@ -94,11 +100,12 @@ export function RobustnessPanel({ sensitivity, walkForward, deflatedSharpe, regi
               </tr>
             ))}
           </tbody>
-        </table>
+          </table>
+        </div>
       </details>
 
-      <details data-testid="section-dsr" className="rounded-lg border border-border bg-card p-6">
-        <summary className="cursor-pointer font-medium text-foreground">Deflated Sharpe Ratio</summary>
+      <details data-testid="section-dsr" className="rounded-lg border border-border bg-card p-4 sm:p-6">
+        <summary className="cursor-pointer py-2 font-medium text-foreground sm:py-0">Deflated Sharpe Ratio</summary>
         <div className="mt-4 space-y-2 text-muted-foreground">
           <p>
             DSR:{" "}
@@ -112,8 +119,8 @@ export function RobustnessPanel({ sensitivity, walkForward, deflatedSharpe, regi
         </div>
       </details>
 
-      <details data-testid="section-regime" className="rounded-lg border border-border bg-card p-6">
-        <summary className="cursor-pointer font-medium text-foreground">Regime breakdown</summary>
+      <details data-testid="section-regime" className="rounded-lg border border-border bg-card p-4 sm:p-6">
+        <summary className="cursor-pointer py-2 font-medium text-foreground sm:py-0">Regime breakdown</summary>
         <div className="mt-4 space-y-2 text-muted-foreground">
           {regime.concentrated_regime && (
             <p data-testid="stat-concentrated-regime">
@@ -138,7 +145,8 @@ export function RobustnessPanel({ sensitivity, walkForward, deflatedSharpe, regi
               {flag.confidence === "provisional" ? " (provisional)" : ""}
             </p>
           ))}
-          <table className="mt-3 w-full text-left">
+          <div className="mt-3 overflow-x-auto">
+            <table className="w-full min-w-[22rem] text-left">
             <thead>
               <tr className="border-b border-border">
                 <th className="py-2 pr-3 font-medium">Regime</th>
@@ -157,7 +165,8 @@ export function RobustnessPanel({ sensitivity, walkForward, deflatedSharpe, regi
                 </tr>
               ))}
             </tbody>
-          </table>
+            </table>
+          </div>
         </div>
       </details>
     </section>

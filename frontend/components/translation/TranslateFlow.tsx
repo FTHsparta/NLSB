@@ -283,7 +283,7 @@ export function TranslateFlow({ api = httpTranslationApi, initialText }: Transla
               type="button"
               data-testid="reset-flow"
               onClick={() => dispatch({ type: "RESET" })}
-              className={`rounded-md border border-border px-4 py-2 text-sm text-foreground ${MOTION.interactive} hover:border-foreground/40 hover:bg-muted`}
+              className={`min-h-11 rounded-md border border-border px-4 py-2 text-sm text-foreground sm:min-h-0 ${MOTION.interactive} hover:border-foreground/40 hover:bg-muted`}
             >
               Run another backtest
             </button>
@@ -313,7 +313,7 @@ function ErrorBanner({ testId, message, detail }: { testId: string; message: str
       <p data-testid={`${testId}-message`}>{message}</p>
       {detail && (
         <details className="mt-2">
-          <summary className="cursor-pointer select-none text-sm font-medium text-foreground">
+          <summary className="cursor-pointer select-none py-2 text-sm font-medium text-foreground sm:py-0">
             Technical details
           </summary>
           <p data-testid={`${testId}-detail`} className="mt-1 whitespace-pre-wrap font-mono text-xs text-muted-foreground">
@@ -352,7 +352,7 @@ function CorrectionBox({ onSubmit, disabled }: { onSubmit: (text: string) => voi
         type="submit"
         data-testid="correction-submit"
         disabled={disabled || !text.trim()}
-        className={`rounded-md border border-border px-3 py-1.5 text-sm text-foreground disabled:opacity-50 ${MOTION.interactive} hover:border-foreground/40 hover:bg-muted`}
+        className={`min-h-11 rounded-md border border-border px-3 py-1.5 text-sm text-foreground disabled:opacity-50 sm:min-h-0 ${MOTION.interactive} hover:border-foreground/40 hover:bg-muted`}
       >
         Submit correction
       </button>

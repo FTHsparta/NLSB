@@ -20,7 +20,7 @@ export function MethodologyNote() {
     <details data-testid="methodology-note" className="mt-6 rounded-lg border border-border bg-card p-4">
       <summary
         data-testid="methodology-summary"
-        className="cursor-pointer select-none text-sm font-semibold text-foreground"
+        className="cursor-pointer select-none py-2 text-sm font-semibold text-foreground sm:py-0"
       >
         How to read a verdict
       </summary>

@@ -65,7 +65,7 @@ export function TranslateInputView({ onSubmit, disabled, initialText }: Translat
                 data-testid="example-strategy"
                 disabled={disabled}
                 onClick={() => setText(example.text)}
-                className={`rounded-full border border-border bg-card px-3 py-1.5 text-xs font-medium text-foreground disabled:opacity-50 ${MOTION.interactive} hover:border-foreground/40 hover:bg-muted`}
+                className={`inline-flex min-h-11 items-center rounded-full border border-border bg-card px-4 py-2 text-sm font-medium text-foreground disabled:opacity-50 sm:min-h-0 sm:px-3 sm:py-1.5 sm:text-xs ${MOTION.interactive} hover:border-foreground/40 hover:bg-muted`}
               >
                 {example.label}
               </button>
@@ -77,7 +77,7 @@ export function TranslateInputView({ onSubmit, disabled, initialText }: Translat
           type="submit"
           data-testid="translate-submit"
           disabled={disabled || !text.trim()}
-          className={`rounded-md bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground disabled:opacity-50 ${MOTION.interactive} hover:opacity-90 active:opacity-80`}
+          className={`min-h-11 rounded-md bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground disabled:opacity-50 sm:min-h-0 ${MOTION.interactive} hover:opacity-90 active:opacity-80`}
         >
           Translate
         </button>

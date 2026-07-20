@@ -37,7 +37,10 @@ export function BuyHoldComparison({ noExit }: BuyHoldComparisonProps) {
       </p>
 
       {noExit.strategy_metrics && noExit.benchmark_metrics ? (
-        <table className="mt-6 w-full text-left text-sm">
+        /* Scrolls inside its own container on narrow screens -- the page
+           never scrolls horizontally. */
+        <div className="mt-6 overflow-x-auto">
+        <table className="w-full min-w-[24rem] text-left text-sm">
           <thead>
             <tr className="border-b border-border">
               <th className="py-2 font-medium text-muted-foreground">Metric</th>
@@ -62,6 +65,7 @@ export function BuyHoldComparison({ noExit }: BuyHoldComparisonProps) {
             })}
           </tbody>
         </table>
+        </div>
       ) : (
         <p className="mt-6 text-muted-foreground">No comparison available -- the entry condition never fired.</p>
       )}

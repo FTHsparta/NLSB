@@ -73,7 +73,7 @@ export default function MethodologyPage() {
         <Link
           href="/backtest"
           data-testid="methodology-cta"
-          className={`inline-block rounded-md bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground ${MOTION.interactive} hover:opacity-90 active:opacity-80`}
+          className={`inline-flex min-h-11 items-center rounded-md bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground sm:min-h-0 ${MOTION.interactive} hover:opacity-90 active:opacity-80`}
         >
           Backtest a strategy
         </Link>

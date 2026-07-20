@@ -22,17 +22,20 @@ export function ConfirmGate({ defaultTicker, onConfirm, disabled }: ConfirmGateP
   const [end, setEnd] = useState("");
 
   return (
-    <div data-testid="confirm-gate" className="mt-6 space-y-4 rounded-lg border border-border bg-card p-6">
+    <div data-testid="confirm-gate" className="mt-6 space-y-4 rounded-lg border border-border bg-card p-4 sm:p-6">
       <p className="text-sm text-muted-foreground">
         Backtest window for <span className="font-medium text-foreground">{defaultTicker}</span>:
       </p>
-      <div className="flex gap-3">
+      {/* Two side-by-side date inputs need ~292px, more than a 360px
+          viewport leaves inside the nested card padding -- so the pair
+          stacks below sm and only sits in a row on wider screens. */}
+      <div className="flex flex-col gap-3 sm:flex-row">
         <input
           data-testid="confirm-start-date"
           type="date"
           value={start}
           onChange={(e) => setStart(e.target.value)}
-          className="rounded-md border border-input bg-background px-2 py-1 text-sm text-foreground"
+          className="w-full rounded-md border border-input bg-background px-2 py-2 text-sm text-foreground sm:w-auto sm:py-1"
         />
         <input
           data-testid="confirm-end-date"
@@ -40,7 +43,7 @@ export function ConfirmGate({ defaultTicker, onConfirm, disabled }: ConfirmGateP
           value={end}
           onChange={(e) => setEnd(e.target.value)}
           placeholder="(optional) end date"
-          className="rounded-md border border-input bg-background px-2 py-1 text-sm text-foreground"
+          className="w-full rounded-md border border-input bg-background px-2 py-2 text-sm text-foreground sm:w-auto sm:py-1"
         />
       </div>
       <button
@@ -48,7 +51,7 @@ export function ConfirmGate({ defaultTicker, onConfirm, disabled }: ConfirmGateP
         data-testid="confirm-run-button"
         disabled={disabled}
         onClick={() => onConfirm(start, end || null)}
-        className={`rounded-md bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground disabled:opacity-50 ${MOTION.interactive} hover:opacity-90 active:opacity-80`}
+        className={`min-h-11 rounded-md bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground disabled:opacity-50 sm:min-h-0 ${MOTION.interactive} hover:opacity-90 active:opacity-80`}
       >
         Run this backtest
       </button>

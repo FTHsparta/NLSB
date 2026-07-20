@@ -14,7 +14,7 @@ export function DisclaimerFooter() {
   return (
     <footer
       data-testid="disclaimer-footer"
-      className="mx-auto max-w-2xl px-6 pb-8 pt-4 text-xs leading-relaxed text-muted-foreground"
+      className="mx-auto max-w-2xl px-6 pb-[max(2rem,env(safe-area-inset-bottom))] pt-4 text-xs leading-relaxed text-muted-foreground"
     >
       Backtested, hypothetical results — not a prediction, not investment advice, and no
       guarantee of future performance. Market data may contain errors.

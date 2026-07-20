@@ -39,7 +39,7 @@ export default function LandingPage() {
     <div data-testid="landing-page" className="mx-auto w-full max-w-3xl space-y-20 px-6 pb-20 pt-16">
       {/* Hero */}
       <section className={`space-y-6 ${MOTION.enterSlide}`}>
-        <h1 className="max-w-[26ch] text-4xl font-semibold leading-tight tracking-tight text-foreground">
+        <h1 className="max-w-[26ch] text-3xl font-semibold leading-tight tracking-tight text-foreground sm:text-4xl">
           The backtester that tells you when your strategy is fooling you.
         </h1>
         <p className="max-w-prose text-lg text-muted-foreground">
@@ -103,7 +103,7 @@ export default function LandingPage() {
               key={example.label}
               href={backtestHref(example.text)}
               data-testid="landing-example-chip"
-              className={`rounded-full border border-border bg-card px-3 py-1.5 text-xs font-medium text-foreground ${MOTION.interactive} hover:border-foreground/40 hover:bg-muted`}
+              className={`inline-flex min-h-11 items-center rounded-full border border-border bg-card px-4 py-2 text-sm font-medium text-foreground sm:min-h-0 sm:px-3 sm:py-1.5 sm:text-xs ${MOTION.interactive} hover:border-foreground/40 hover:bg-muted`}
             >
               {example.label}
             </Link>

@@ -8,6 +8,10 @@ import { MOTION } from "@/lib/motion";
  * two-tier gray-to-white on hover. Deliberately a server component with no
  * active-route state -- the pages are few and self-evident, and keeping it
  * static means no client router hooks for tests to mock.
+ *
+ * Links carry `-m-3 p-3`: the padding grows each touch target to ~44px
+ * while the negative margin cancels it out of the layout, so the rendered
+ * nav is pixel-identical at every width.
  */
 export function SiteNav() {
   return (
@@ -16,7 +20,7 @@ export function SiteNav() {
         <Link
           href="/"
           data-testid="site-nav-wordmark"
-          className={`text-sm font-semibold tracking-widest text-foreground ${MOTION.interactive} hover:opacity-80`}
+          className={`-m-3 p-3 text-sm font-semibold tracking-widest text-foreground ${MOTION.interactive} hover:opacity-80`}
         >
           NLSB
         </Link>
@@ -24,14 +28,14 @@ export function SiteNav() {
           <Link
             href="/backtest"
             data-testid="site-nav-backtest"
-            className={`text-sm text-muted-foreground ${MOTION.interactive} hover:text-foreground`}
+            className={`-m-3 p-3 text-sm text-muted-foreground ${MOTION.interactive} hover:text-foreground`}
           >
             Backtest
           </Link>
           <Link
             href="/methodology"
             data-testid="site-nav-methodology"
-            className={`text-sm text-muted-foreground ${MOTION.interactive} hover:text-foreground`}
+            className={`-m-3 p-3 text-sm text-muted-foreground ${MOTION.interactive} hover:text-foreground`}
           >
             Methodology
           </Link>

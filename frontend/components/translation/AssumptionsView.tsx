@@ -127,7 +127,7 @@ function WarningAssumption({ assumption }: { assumption: Assumption }) {
     <div
       role="alert"
       data-testid="assumption-warning"
-      className="rounded-lg border-l-4 border-foreground bg-muted p-6 text-foreground"
+      className="rounded-lg border-l-4 border-foreground bg-muted p-4 text-foreground sm:p-6"
     >
       <p className="text-base font-bold uppercase tracking-wide text-foreground">
         Heads up &mdash; this changes what the result means
