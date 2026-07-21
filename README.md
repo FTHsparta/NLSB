@@ -1,4 +1,4 @@
-# NLSB — Natural Language Strategy Backtester
+# Deflate
 
 A backtester for people who want an honest answer.
 

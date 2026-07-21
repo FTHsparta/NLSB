@@ -22,7 +22,7 @@ export function SiteNav() {
           data-testid="site-nav-wordmark"
           className={`-m-3 p-3 text-sm font-semibold tracking-widest text-foreground ${MOTION.interactive} hover:opacity-80`}
         >
-          NLSB
+          Deflate
         </Link>
         <div className="flex items-center gap-6">
           <Link

@@ -9,8 +9,8 @@ import {
 import { MOTION } from "@/lib/motion";
 
 export const metadata: Metadata = {
-  title: "Methodology — NLSB",
-  description: "How NLSB judges a strategy: the four checks, the four verdicts, and why.",
+  title: "Methodology — Deflate",
+  description: "How Deflate judges a strategy: the four checks, the four verdicts, and why.",
 };
 
 /**
@@ -26,7 +26,7 @@ export default function MethodologyPage() {
       <header className="space-y-3 border-b border-border pb-8">
         <h1 className="text-3xl font-semibold tracking-tight text-foreground">Methodology</h1>
         <p className="max-w-prose text-muted-foreground">
-          A single backtest number is easy to like and easy to be fooled by. NLSB runs
+          A single backtest number is easy to like and easy to be fooled by. Deflate runs
           every strategy through the same four checks and reports a verdict in plain
           language — here is exactly what each check asks and what each verdict means.
         </p>

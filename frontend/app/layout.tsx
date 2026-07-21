@@ -15,8 +15,17 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "NLSB — Natural Language Strategy Backtester",
+  title: "Deflate",
   description: "An honest backtester: plain-English strategy in, a verdict you can trust out.",
+  // No OpenGraph tags existed before this rename; adding the minimum so a
+  // shared link preview reads "Deflate" too, reusing the title/description
+  // above verbatim -- no new copy. Page-level metadata below only
+  // overrides `title`, so this object is inherited unchanged site-wide.
+  openGraph: {
+    title: "Deflate",
+    description: "An honest backtester: plain-English strategy in, a verdict you can trust out.",
+    type: "website",
+  },
 };
 
 export default function RootLayout({

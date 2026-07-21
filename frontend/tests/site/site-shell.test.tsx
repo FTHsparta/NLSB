@@ -36,7 +36,7 @@ describe("shared layout: nav and footer are present on every route", () => {
     render(<SiteShell>{await page()}</SiteShell>);
 
     const nav = screen.getByTestId("site-nav");
-    expect(within(nav).getByTestId("site-nav-wordmark")).toHaveTextContent("NLSB");
+    expect(within(nav).getByTestId("site-nav-wordmark")).toHaveTextContent("Deflate");
     expect(within(nav).getByTestId("site-nav-backtest")).toHaveAttribute("href", "/backtest");
     expect(within(nav).getByTestId("site-nav-methodology")).toHaveAttribute("href", "/methodology");
 

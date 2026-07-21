@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 import { TranslateFlow } from "@/components/translation/TranslateFlow";
 
 export const metadata: Metadata = {
-  title: "Backtest — NLSB",
+  title: "Backtest — Deflate",
   description: "Describe a strategy in plain English; review every assumption before it runs.",
 };
 
