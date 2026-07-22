@@ -1,5 +1,80 @@
 # Build Log
 
+## 2026-07-22 (4) — SEO + social-preview chrome: metadataBase, generated OG card, sitemap, robots
+
+**What:** Frontend-only, static SEO/share metadata — zero backend, zero run
+data. (1) `layout.tsx` metadata gains `metadataBase: https://deflate.app`, a
+self-canonical, a completed `openGraph` block (url/siteName/type), and a
+`twitter` summary_large_image block reusing the same title/description. (2)
+Code-generated OG card at `app/opengraph-image.tsx` (dark, monochrome
+wordmark + tagline) with `app/twitter-image.tsx` re-exporting it. (3)
+`app/sitemap.ts` (three indexable routes, absolute URLs) and (4)
+`app/robots.ts` (allow /, disallow /api/, absolute sitemap ref).
+
+**Lesson — the honest fix for "OG image" is to set it in exactly ONE place,
+and the trap is that Next gives you three.** You can declare `images` in
+`openGraph`, in `twitter`, AND via the `opengraph-image` file convention —
+and if you do more than one, you emit duplicate/conflicting `og:image` tags
+that scrapers resolve inconsistently. The file convention is the strongest
+(it auto-injects width/height/type/alt and content-hashes the URL for cache-
+busting), so the right move was to declare the image NOWHERE in the metadata
+object and let the convention own it. Verified structurally, not by faith:
+the prerendered `index.html` carries exactly one `og:image` and one
+`twitter:image`, both absolute, both content-hashed — which only holds
+because `images` was omitted from both blocks. `metadataBase` is what turns
+the convention's relative `/opengraph-image` into the absolute production
+URL; without it, a Vercel preview deploy would stamp its own preview host
+into canonical + OG and risk being indexed as the canonical site.
+
+**Lesson — "read the guide before writing" caught a real version fork.** The
+frontend's AGENTS.md insists this isn't the Next.js from training data, and
+it earned its keep: the bundled docs confirmed `ImageResponse` still imports
+from `next/og` (moved there in v14), that the file-based OG example renders
+text with NO `fonts` option (the bundled default sans is enough), and that
+Satori supports only flexbox + a CSS subset (no `grid`). So the card uses a
+fontless default and pure flexbox — the task's "a working card in a fallback
+font beats a broken build" made structural, not hoped-for. `next build`
+statically prerenders the card at build time, so a font/layout error would
+have failed the build loudly rather than at share time.
+
+**Off-script, flagged: `main` arrived with a broken build that wasn't mine.**
+Two commits landed after the last push — `47c4585 vercel analytics`,
+`d81236e speed analytics` — adding `@vercel/analytics/next` and
+`@vercel/speed-insights/next` imports to `layout.tsx` WITHOUT adding either
+package to `package.json` or installing them. `next build` (and, identically,
+the Vercel deploy) failed at module resolution before ever reaching my
+endpoints. The imports are unambiguously intended, so I installed both
+packages (declared now in package.json/lock) to unblock the required build
+verification and repair the deploy. Called out here because it's outside the
+SEO scope and modified dependency manifests — not a silent side effect.
+
+**Routes:** the navigable route map (/, /backtest, /methodology, /_not-found)
+is UNCHANGED. The build now lists four additional entries —
+`/opengraph-image`, `/twitter-image`, `/robots.txt`, `/sitemap.xml` — but
+these are generated file-convention endpoints, not human-navigable pages. No
+test asserts a route count or pins layout metadata (checked in orientation:
+the only `toHaveLength` assertions count content items — glossary terms,
+limitation cards, example chips — never routes), so no test needed rewriting.
+
+**Invariants:** INV-1: `git diff backend/` empty. INV-2: every string is
+static site copy; the sitemap/OG carry no run data. INV-3: navigable routes
+unchanged; only file-convention endpoints added. INV-4: canonical, og:url,
+og:image, twitter:image, all sitemap `loc`s, and the robots sitemap ref are
+all absolute to https://deflate.app (verified in the emitted
+`sitemap.xml.body`, `robots.txt.body`, and prerendered `index.html` head).
+INV-5: all 147 tests green, none touched. INV-6: tsc, eslint, `next build`
+clean; build emits /sitemap.xml, /robots.txt, and /opengraph-image without
+error.
+
+**Counts:** frontend tests unchanged at 147 (SEO chrome has no component
+tests — it's verified through the build's emitted artifacts, the honest
+check for file-convention endpoints). Backend untouched at 251.
+
+Next: manual steps I can't do — submit the sitemap in Google Search Console
+and confirm the Vercel production domain env, then a real link-preview smoke
+(paste https://deflate.app into Slack/X/iMessage) to confirm the card renders
+before announcing launch.
+
 ## 2026-07-22 (3) — "How Deflate works": glossary + limitations on /methodology, inline results pointer
 
 **What:** Static, generic chrome only — no backend changes, no new route.
