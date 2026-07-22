@@ -301,3 +301,44 @@ describe("CONTRACT 8: bull-concentration flag renders alongside a real (non-UNTE
     expect(flagEl).toHaveTextContent(`+${(excess * 100).toFixed(1)} pp vs benchmark`);
   });
 });
+
+/**
+ * CONTRACT 9 (pre-launch "How Deflate works" pass): the static limitations
+ * pointer on the results view. It is generic chrome about the SYSTEM's fixed
+ * cost/fill model -- constant text, no per-run value -- and it must remain a
+ * SIBLING of the verdict/checks wrappers: never inside VerdictCard or
+ * RobustnessPanel, whose verdict color/motion scoping is pinned elsewhere.
+ */
+describe("CONTRACT 9: static limitations pointer is a sibling below the checks", () => {
+  it("renders below the checks panel and links to /methodology#limitations", () => {
+    render(<RobustnessResultView result={PASS_RESULT} />);
+
+    const pointer = screen.getByTestId("results-limitations-pointer");
+    const panel = screen.getByTestId("robustness-panel");
+    // Panel comes BEFORE the pointer in DOM order (pointer sits below the checks).
+    expect(panel.compareDocumentPosition(pointer) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    const link = within(pointer).getByRole("link");
+    expect(link).toHaveAttribute("href", "/methodology#limitations");
+  });
+
+  it("is never nested inside VerdictCard or RobustnessPanel", () => {
+    render(<RobustnessResultView result={PASS_RESULT} />);
+    const pointer = screen.getByTestId("results-limitations-pointer");
+    expect(screen.getByTestId("verdict-card").contains(pointer)).toBe(false);
+    expect(screen.getByTestId("robustness-panel").contains(pointer)).toBe(false);
+  });
+
+  it("carries byte-identical text for every verdict -- no per-run content", () => {
+    const texts = [PASS_RESULT, UNTESTABLE_RESULT, LIKELY_OVERFIT_RESULT].map((result) => {
+      const { unmount } = render(<RobustnessResultView result={result} />);
+      const text = screen.getByTestId("results-limitations-pointer").textContent;
+      unmount();
+      return text;
+    });
+    expect(texts[1]).toBe(texts[0]);
+    expect(texts[2]).toBe(texts[0]);
+    expect(texts[0]).toContain("close to gross");
+    expect(texts[0]).toContain("next-day-close fills");
+  });
+});

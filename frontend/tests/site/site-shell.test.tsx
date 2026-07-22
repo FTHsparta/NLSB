@@ -135,4 +135,55 @@ describe("/methodology: first-class route with the shared content", () => {
     }
     expect(screen.getByTestId("methodology-cta")).toHaveAttribute("href", "/backtest");
   });
+
+  // "How Deflate works" content (pre-launch pass): intro + glossary +
+  // limitations, all static generic chrome. The digits asserted below
+  // (0.05%, 80%, 2015) are SYSTEM constants -- the fixed cost model, a
+  // documented threshold, the default window -- identical for every run.
+  // The no-digits discipline pinned in chrome.test.tsx applies to the
+  // in-flow MethodologyNote (which sits next to real results); this page
+  // is where being specific about the system's own numbers is the honest
+  // choice, not a leak.
+  it("leads with the adversarial intro", () => {
+    render(<MethodologyPage />);
+    expect(screen.getByTestId("methodology-intro")).toHaveTextContent(
+      "Most backtesters are cheerleaders"
+    );
+    expect(screen.getByTestId("methodology-intro")).toHaveTextContent("what Deflate cannot do");
+  });
+
+  it("renders all seven glossary terms under 'Key terms'", () => {
+    render(<MethodologyPage />);
+    const glossary = screen.getByTestId("methodology-glossary");
+    expect(glossary).toHaveTextContent("Key terms");
+    expect(screen.getAllByTestId("glossary-term")).toHaveLength(7);
+    for (const term of [
+      "In-sample vs. out-of-sample",
+      "Overfitting",
+      "Walk-forward validation",
+      "Deflated Sharpe ratio",
+      "Regime concentration",
+      "Parameter sensitivity",
+      "Verdict (Pass / Shaky / Likely overfit / Untestable)",
+    ]) {
+      expect(glossary).toHaveTextContent(term);
+    }
+  });
+
+  it("renders all six limitations under 'What Deflate does not do', anchored for the results pointer", () => {
+    render(<MethodologyPage />);
+    const limitations = screen.getByTestId("methodology-limitations");
+    // The anchor the results view's pointer (/methodology#limitations) lands on.
+    expect(limitations).toHaveAttribute("id", "limitations");
+    expect(limitations).toHaveTextContent("What Deflate does not do");
+    expect(screen.getAllByTestId("limitation-item")).toHaveLength(6);
+    // Spot-check the sharpest claims survive verbatim, including the system
+    // constants that make them concrete.
+    expect(limitations).toHaveTextContent("roughly 0.05% per fill");
+    expect(limitations).toHaveTextContent("executed at the next day's close");
+    expect(limitations).toHaveTextContent("declined rather than silently approximated");
+    expect(limitations).toHaveTextContent("Stop-loss and take-profit orders are also not yet simulated");
+    expect(limitations).toHaveTextContent("80% regime-concentration threshold");
+    expect(limitations).toHaveTextContent("The default window begins in 2015");
+  });
 });

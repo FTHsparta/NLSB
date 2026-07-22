@@ -2,6 +2,12 @@ import type { Metadata } from "next";
 import Link from "next/link";
 
 import {
+  GLOSSARY_TERMS,
+  HOW_INTRO,
+  LIMITATIONS,
+  LIMITATIONS_LEAD,
+} from "@/components/chrome/howDeflateWorksContent";
+import {
   CHECK_EXPLANATIONS,
   OVERFIT_EXPLANATION,
   VERDICT_EXPLANATIONS,
@@ -10,7 +16,8 @@ import { MOTION } from "@/lib/motion";
 
 export const metadata: Metadata = {
   title: "Methodology — Deflate",
-  description: "How Deflate judges a strategy: the four checks, the four verdicts, and why.",
+  description:
+    "How Deflate judges a strategy: the four checks, the four verdicts, key terms, and what Deflate deliberately does not model.",
 };
 
 /**
@@ -25,10 +32,8 @@ export default function MethodologyPage() {
     <div data-testid="methodology-page" className={`mx-auto w-full max-w-2xl space-y-12 p-6 pt-10 ${MOTION.enter}`}>
       <header className="space-y-3 border-b border-border pb-8">
         <h1 className="text-3xl font-semibold tracking-tight text-foreground">Methodology</h1>
-        <p className="max-w-prose text-muted-foreground">
-          A single backtest number is easy to like and easy to be fooled by. Deflate runs
-          every strategy through the same four checks and reports a verdict in plain
-          language — here is exactly what each check asks and what each verdict means.
+        <p data-testid="methodology-intro" className="max-w-prose text-muted-foreground">
+          {HOW_INTRO}
         </p>
       </header>
 
@@ -67,6 +72,38 @@ export default function MethodologyPage() {
           Why a great-looking curve can still be overfit
         </h2>
         <p className="max-w-prose text-sm leading-relaxed text-muted-foreground">{OVERFIT_EXPLANATION}</p>
+      </section>
+
+      <section data-testid="methodology-glossary" className="space-y-5">
+        <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          Key terms
+        </h2>
+        <dl className="space-y-5">
+          {GLOSSARY_TERMS.map((t) => (
+            <div key={t.term} data-testid="glossary-term" className="border-l-2 border-border pl-4">
+              <dt className="font-semibold text-foreground">{t.term}</dt>
+              <dd className="mt-1 text-sm leading-relaxed text-muted-foreground">{t.body}</dd>
+            </div>
+          ))}
+        </dl>
+      </section>
+
+      {/* `id` is a stable deep-link target: the results view's inline
+          pointer links to /methodology#limitations. Rename in both places
+          or not at all. */}
+      <section id="limitations" data-testid="methodology-limitations" className="space-y-5 scroll-mt-6">
+        <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          What Deflate does not do
+        </h2>
+        <p className="max-w-prose text-sm leading-relaxed text-muted-foreground">{LIMITATIONS_LEAD}</p>
+        <dl className="space-y-5">
+          {LIMITATIONS.map((l) => (
+            <div key={l.title} data-testid="limitation-item" className="rounded-lg border border-border bg-card p-5">
+              <dt className="font-semibold text-foreground">{l.title}</dt>
+              <dd className="mt-1 text-sm leading-relaxed text-muted-foreground">{l.body}</dd>
+            </div>
+          ))}
+        </dl>
       </section>
 
       <div className="border-t border-border pt-8">

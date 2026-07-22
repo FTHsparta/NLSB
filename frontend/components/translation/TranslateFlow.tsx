@@ -304,7 +304,9 @@ export function TranslateFlow({ api = httpTranslationApi, initialText }: Transla
               RobustnessResultView stays a pure renderer of backend judgment.
               Secondary monochrome styling -- it must not compete with the
               verdict. Constant classes/delay: motion stays judgment-blind. */}
-          <div className={MOTION.enterSlide} style={staggerDelay(4)}>
+          {/* Index 5 keeps the reveal strictly sequential after the result
+              view's own wrappers (0..4, the limitations pointer included). */}
+          <div className={MOTION.enterSlide} style={staggerDelay(5)}>
             <button
               type="button"
               data-testid="reset-flow"

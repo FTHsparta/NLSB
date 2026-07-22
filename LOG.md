@@ -1,5 +1,159 @@
 # Build Log
 
+## 2026-07-22 (3) — "How Deflate works": glossary + limitations on /methodology, inline results pointer
+
+**What:** Static, generic chrome only — no backend changes, no new route.
+(1) /methodology gains an adversarial intro lead, a seven-term "Key terms"
+glossary, and a six-entry "What Deflate does not do" limitations section
+(approved copy, verbatim), all alongside the existing check/verdict
+explanations. (2) The results view gains ONE static line below the checks —
+"These results are close to gross and assume next-day-close fills…" —
+linking to /methodology#limitations, as a sibling wrapper that never
+touches VerdictCard or RobustnessPanel.
+
+**Lesson — "no digits" was never the invariant; "no digits WHERE a digit
+could read as a run's own number" was.** `methodologyContent.ts` carries a
+pinned no-digits test via MethodologyNote, and the new limitations copy is
+full of digits (0.05% per fill, the 80% concentration threshold, the 2015
+default window). The naive move — appending the new exports to the shared
+module — would have forced a choice between weakening that pin or mangling
+approved copy. The right move was noticing the pin's SCOPE: MethodologyNote
+renders next to real results, where any figure could masquerade as the
+strategy's own; the /methodology page is exactly where the system's fixed
+constants must be stated precisely, because vagueness there would be its
+own dishonesty. So the copy lives in a NEW module
+(`howDeflateWorksContent.ts`) whose docstring forbids MethodologyNote from
+ever importing it, the old module's no-digits contract stays true and
+pinned, and the new page tests assert those digits POSITIVELY. Same word
+— "digits" — two opposite obligations, resolved by scoping, not by
+compromise.
+
+**Lesson — a well-scoped signature test absorbs change without edits, and
+that's evidence FOR it, not a gap.** The motion test's `revealSignature`
+reads the result view's child wrappers and asserts byte-identical
+class/delay across all four verdicts. Adding the pointer wrapper (fifth
+child, constant text/class/delay) passed it untouched — because the test
+asserts cross-verdict EQUALITY, not a hardcoded child count. Where the
+old color-invariants test (last phase) kept passing by accident — scoped
+too narrowly to notice a new token family — this one keeps passing by
+design: a verdict-conditional pointer would still fail it. The difference
+got documented in the test's scope note rather than left as tribal
+knowledge; assertions unchanged.
+
+**Placement detail:** the pointer slots between the checks panel and
+MethodologyNote (stagger index 2), shifting the note/disclaimer to 3/4 and
+TranslateFlow's reset button to 5 — the reveal stays strictly sequential,
+and no test pinned those literal indices (verified before shifting, not
+assumed). CONTRACT 9 now pins the pointer's three obligations: below the
+checks in DOM order with the #limitations href, never nested inside
+VerdictCard/RobustnessPanel, byte-identical text across verdicts. The
+limitations section carries `id="limitations"` and the page test asserts
+that id — the deep link is pinned from both ends. One editorial call:
+the old header lead ("here is exactly what each check asks…") was
+REPLACED by the approved intro, not stacked above it — two overlapping
+leads would have read as filler; the old lead's promise is a subset of
+the new one's.
+
+**Invariants:** INV-1: every added string is a system constant; nothing
+reads run output (CONTRACT 9's byte-identical-across-verdicts test proves
+it structurally). INV-2: same four-route map, /methodology extended.
+INV-3: VerdictCard/RobustnessPanel diffs empty; pointer is a sibling;
+verdict color/motion scoping tests unmodified and green. INV-4: this task
+touched zero backend files (the pending backend diff is the previous
+entry's uncommitted work). INV-5: all 141 prior tests green unmodified —
+the motion test needed only a documenting scope note, no assertion
+changes. INV-6: tsc, eslint, `next build` clean.
+
+**Counts:** frontend 141 → 147 (+3 CONTRACT 9 pointer tests, +3
+/methodology content tests). Backend untouched at 251.
+
+Next: pre-launch sweep — commit the accumulated honesty work, on-device
+pass over /methodology and the results pointer (anchor scroll, mobile
+reflow), then launch checklist.
+
+## 2026-07-22 (2) — Pre-launch honesty fixes: reject stops at the gate, drop asset_class from UI
+
+**What:** Two fixes from the limitations audit, both pre-gate (validation +
+display), zero engine/robustness changes. (1) An IR carrying a non-null
+`risk.stop_loss_pct`/`take_profit_pct` is now rejected DETERMINISTICALLY in
+our code (`service.unsimulated_risk_reason`) — at translate time via the
+existing "unsupported" surface, and again at the `/confirm` run path as a
+400 — because the engine has never simulated a stop and the old renderer
+was printing "Stop-loss: 5.0% below entry price" onto the confirmation
+anyway. (2) `asset_class` no longer appears on any user-facing surface
+(restatement line, "You specified" row, "I assumed" note): nothing in the
+data or cost layer reads it, so displaying it implied crypto/futures
+handling that doesn't exist. The schema keeps both fields; defaults still
+fill them silently.
+
+**Lesson — the most dangerous dishonesty isn't a wrong number, it's a
+confirmation screen for a strategy that won't run.** The stop-loss bug had
+three cooperating parts, each individually defensible: the schema accepted
+`risk` (for a future engine), the renderer displayed it (faithfully
+mirroring the IR), and the interpreter ignored it (it only handles
+signals). No single file lied; the SYSTEM lied — "what you confirm is what
+runs" held at every layer except the composition of layers. The fix
+pattern: when a capability is display-deep, cut BOTH ends — reject the
+input deterministically before the gate payload exists (never trusting the
+LLM prompt's self-reject, since a stop-bearing IR is schema-valid and the
+model has no reason to refuse it), AND delete the render path outright, so
+a future caller can't resurrect the phantom by feeding the renderer
+directly. The new renderer test hands it a stop-bearing IR on purpose —
+bypassing the upstream rejection — to prove the display path is gone, not
+merely guarded.
+
+**Lesson — an "assumptions" list is user-facing copy, and announcing an
+assumption about a field nothing reads is itself a false claim.** The
+obvious Task-3 change was deleting `(equity)` from the restatement; the
+non-obvious surface was the "I assumed" list, where
+`asset.asset_class: equity — defaulted to equity` implied the choice
+MATTERED (as if stating "crypto" would have changed the data source or
+cost model — it wouldn't). The honest fix was upstream in `defaults.py`:
+fill the field for the schema, record no Assumption — which then flowed
+through renderer, fixtures, and AssumptionsView with zero frontend
+component changes, because the frontend renders backend content verbatim
+(the display corollary paying rent). The fixture-dump discipline
+(`dump_translation_fixtures.py` + the backend tests pinning it) meant the
+frontend picked up the new truth by regeneration, not hand-editing.
+
+**Rejection-path reuse, precisely:** the stop rejection returns
+`status="unsupported"` with a backend-emitted reason naming exactly what
+was found ("a stop-loss", "a take-profit", or both) — the same payload
+shape the LLM's own `{"unsupported": true}` sentinel produces, rendered by
+the SAME existing `translate-flow-message` element. No new UI. The gate is
+structurally unreachable for these: `atGate` requires `status === "ok"`
+AND a restatement, and the rejection produces neither. Defence in depth at
+`/confirm` (the only run path) closes the direct-POST hole for API users
+who never saw the frontend at all.
+
+**Tests rewritten (2), not deleted:**
+(1) `test_unstated_asset_class_defaults_to_equity` → now asserts the field
+is filled WITHOUT a user-facing assumption, with the why in the docstring.
+(2) The translator's ≥5-assumptions comment updated (asset_class no longer
+counts; period/source/exit/position×2/risk still clear the bar unchanged).
+New coverage: 4 renderer/service rejection tests + 2 route tests + 2
+never-renders tests (backend), 1 confirmation-surface absence test
+(frontend).
+
+**Invariants:** INV-1: `/confirm` still the sole run path — the new checks
+only ADD a refusal there, and CONTRACT 5/6 tests run unmodified. INV-2:
+the rejection reason is backend-emitted prose displayed verbatim by the
+existing message element. INV-3: `git diff` on `backend/app/robustness`,
+`engine`, `data` is empty; schema file untouched. INV-4: rejection runs in
+`service.translate` before `render_confirmation` is ever called — a
+stop-bearing IR has no restatement, hence no gate. INV-5: all prior tests
+green; the two rewrites documented above and here. INV-6: tsc, eslint,
+`next build` clean, same four-route map.
+
+**Counts:** backend 242 → 251 collected (all passing locally; the 1
+CI-deselected `live` marker case unchanged). Frontend 140 → 141. Fixtures
+regenerated from real renderer output, diff is exactly the two removals.
+
+Next: the limitations/glossary page — static chrome sourced from the
+audit's findings (gross-ish costs, next-close fills, daily-only,
+survivorship shape, IR expressiveness bounds), now accurate about stops
+because the engine refuses what it can't simulate instead of displaying it.
+
 ## 2026-07-22 — Deflate: dedicated confirm view + results redesign (frontend only)
 
 **What:** Two /backtest UX changes, no new routes, no backend changes.

@@ -144,6 +144,14 @@ describe("INV-4: identical entrance for every verdict -- motion is not a judgmen
   // if a wrapper div itself ever became verdict-conditional (e.g. a
   // different stagger delay or motion class per verdict) -- that failure
   // mode remains covered.
+  //
+  // Child-set note (pre-launch "How Deflate works" pass): the view gained a
+  // fifth wrapper -- the static limitations pointer, a sibling between the
+  // checks panel and the methodology note. No assertion below changed: the
+  // signature is compared ACROSS verdicts, and the pointer is constant
+  // chrome (fixed text, fixed class, fixed delay), so equality holds with
+  // five entries exactly as it did with four. Were the pointer ever made
+  // verdict-conditional, this test is what would catch it.
   function revealSignature(result: RobustnessResult): string[] {
     const { unmount } = render(<RobustnessResultView result={result} />);
     const view = screen.getByTestId("robustness-result-view");

@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 import type { RobustnessResult } from "@/lib/robustness/types";
 import { ResultsDisclaimer } from "@/components/chrome/Disclaimer";
 import { MethodologyNote } from "@/components/chrome/MethodologyNote";
@@ -116,10 +118,28 @@ export function RobustnessResultView({ result }: RobustnessResultViewProps) {
           verdict={result.verdict.verdict}
         />
       </div>
+      {/* Static limitations pointer (pre-launch honesty pass): a SIBLING of
+          the verdict/checks wrappers, never inside VerdictCard or
+          RobustnessPanel — it must not touch their verdict color/motion
+          scoping. Generic chrome about the system's fixed cost/fill model:
+          constant text, constant classes, no per-run value (display-side
+          corollary), so the motion signature stays verdict-blind. */}
       <div className={MOTION.enterSlide} style={staggerDelay(2)}>
-        <MethodologyNote />
+        <p data-testid="results-limitations-pointer" className="mt-6 text-sm text-muted-foreground">
+          These results are close to gross and assume next-day-close fills —{" "}
+          <Link
+            href="/methodology#limitations"
+            className={`underline underline-offset-2 ${MOTION.interactive} hover:text-foreground`}
+          >
+            see what Deflate does not model
+          </Link>{" "}
+          before relying on them.
+        </p>
       </div>
       <div className={MOTION.enterSlide} style={staggerDelay(3)}>
+        <MethodologyNote />
+      </div>
+      <div className={MOTION.enterSlide} style={staggerDelay(4)}>
         <ResultsDisclaimer />
       </div>
     </div>
