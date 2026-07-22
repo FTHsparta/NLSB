@@ -47,6 +47,17 @@
   /* Deliberately NOT a judgment hue: "we can't tell you, honestly" hasn't
      earned green/amber/red. Full prominence, neutral color. */
   --verdict-untestable: 240 5% 45%;
+
+  /* Check-outcome palette (post-Phase-13 results redesign). Distinct token
+     family from --verdict-*, referenced ONLY by RobustnessPanel.tsx's
+     per-check severity lookup -- never reused elsewhere, same discipline
+     as the verdict tokens. Deliberately LOWER saturation/lightness than
+     their --verdict-* counterparts at the same hue: check-level color is
+     subordinate to the verdict card, which remains the single dominant
+     saturated element on the page. See tests/visual/color-invariants.test.tsx. */
+  --check-pass: 142 40% 40%;
+  --check-warn: 38 65% 45%;
+  --check-danger: 0 55% 45%;
 }
 
 @theme inline {
@@ -74,6 +85,10 @@
   --color-verdict-shaky: hsl(var(--verdict-shaky));
   --color-verdict-overfit: hsl(var(--verdict-overfit));
   --color-verdict-untestable: hsl(var(--verdict-untestable));
+
+  --color-check-pass: hsl(var(--check-pass));
+  --color-check-warn: hsl(var(--check-warn));
+  --color-check-danger: hsl(var(--check-danger));
 
   --radius-lg: var(--radius);
   --radius-md: calc(var(--radius) - 0.125rem);

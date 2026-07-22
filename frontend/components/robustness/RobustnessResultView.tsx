@@ -113,6 +113,7 @@ export function RobustnessResultView({ result }: RobustnessResultViewProps) {
           walkForward={result.walk_forward}
           deflatedSharpe={result.deflated_sharpe}
           regime={result.regime}
+          verdict={result.verdict.verdict}
         />
       </div>
       <div className={MOTION.enterSlide} style={staggerDelay(2)}>

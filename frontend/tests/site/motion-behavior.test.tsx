@@ -129,6 +129,21 @@ describe("INV-4: identical entrance for every verdict -- motion is not a judgmen
     ["UNTESTABLE", untestableFixture as unknown as RobustnessResult],
   ];
 
+  // Scope note (post-Phase-13 results redesign, which gives RobustnessPanel's
+  // check ROWS verdict-influenced semantic color for the first time -- see
+  // tests/visual/color-invariants.test.tsx): `revealSignature` below only
+  // reads `view.children` -- the outer wrapper <div>'s OWN className/style,
+  // never reaching into what each wrapped component (VerdictCard,
+  // RobustnessPanel, ...) renders inside itself. It has therefore ALWAYS
+  // only asserted motion/layout equality at the wrapper level, and has
+  // ALWAYS tolerated content that varies by verdict inside a wrapper --
+  // proven by the fact that VerdictCard's own per-verdict color has passed
+  // this test since Phase 11. No assertion below needed narrowing for the
+  // redesign: it keeps passing because it was already scoped correctly,
+  // not because it stopped checking anything. It WOULD catch a regression
+  // if a wrapper div itself ever became verdict-conditional (e.g. a
+  // different stagger delay or motion class per verdict) -- that failure
+  // mode remains covered.
   function revealSignature(result: RobustnessResult): string[] {
     const { unmount } = render(<RobustnessResultView result={result} />);
     const view = screen.getByTestId("robustness-result-view");

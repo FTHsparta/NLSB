@@ -65,7 +65,8 @@ type FlowAction =
   | { type: "CONFIRM_START" }
   | { type: "CONFIRM_SUCCESS"; payload: RobustnessResult }
   | { type: "CONFIRM_ERROR"; message: string; detail?: string }
-  | { type: "RESET" };
+  | { type: "RESET" }
+  | { type: "BACK_TO_EDIT" };
 
 const INITIAL_STATE: FlowState = {
   phase: "idle",
@@ -130,6 +131,14 @@ function reducer(state: FlowState, action: FlowAction): FlowState {
       // surface (gated on BOTH) cannot survive the transition. `draft: ""`
       // (not null) makes the remounted input empty even under a ?s= prefill.
       return { ...INITIAL_STATE, draft: "" };
+    case "BACK_TO_EDIT":
+      // Lighter than RESET: returns to the input from the confirm view
+      // without discarding the last translation, so a same-text resubmit
+      // isn't required -- draft already holds the right text (set once at
+      // TRANSLATE_START, untouched since), so the remounted input is
+      // prefilled with exactly what the user submitted, reusing the same
+      // draft-preservation mechanism the loading view already relies on.
+      return { ...state, phase: "idle", error: null };
     default:
       return state;
   }
@@ -190,8 +199,14 @@ export function TranslateFlow({ api = httpTranslationApi, initialText }: Transla
   // deliberately NOT a loading phase: it's an in-gate sub-loop whose
   // disabled correction box is the right in-place treatment.
   const isLoading = isTranslating || isConfirming;
+  // Phase-gated explicitly (not just "not results/not loading"): BACK_TO_EDIT
+  // deliberately leaves `translation` intact so a same-text resubmit isn't
+  // required, which means checking translation-shape alone would leave the
+  // gate incorrectly "on" once phase returns to "idle".
   const atGate =
-    state.translation?.status === "ok" && !!state.translation.restatement && state.phase !== "results" && !isLoading;
+    (state.phase === "gate" || state.phase === "correcting") &&
+    state.translation?.status === "ok" &&
+    !!state.translation.restatement;
 
   return (
     <div data-testid="translate-flow" className="mx-auto max-w-2xl space-y-8 p-6">
@@ -199,7 +214,7 @@ export function TranslateFlow({ api = httpTranslationApi, initialText }: Transla
         <ErrorBanner testId="translate-error" message={state.error.message} detail={state.error.detail} />
       )}
 
-      {state.phase !== "results" && !isLoading && (
+      {state.phase !== "results" && !isLoading && !atGate && (
         <TranslateInputView
           onSubmit={handleTranslate}
           disabled={isTranslating}
@@ -227,7 +242,18 @@ export function TranslateFlow({ api = httpTranslationApi, initialText }: Transla
       {atGate && (
         <div data-testid="gate" className={`space-y-8 ${MOTION.enterSlide}`}>
           <header className="space-y-1 border-b border-border pb-6">
-            <h2 className="text-xl font-semibold text-foreground">Review before you run it</h2>
+            <div className="flex items-start justify-between gap-4">
+              <h2 className="text-xl font-semibold text-foreground">Review before you run it</h2>
+              <button
+                type="button"
+                data-testid="back-to-edit"
+                disabled={isCorrecting}
+                onClick={() => dispatch({ type: "BACK_TO_EDIT" })}
+                className={`min-h-11 shrink-0 rounded-md border border-border px-3 py-1.5 text-sm text-foreground disabled:opacity-50 sm:min-h-0 ${MOTION.interactive} hover:border-foreground/40 hover:bg-muted`}
+              >
+                ← Back to edit
+              </button>
+            </div>
             <p className="text-sm text-muted-foreground">
               Nothing has run yet. Check what you stated against what the system assumed,
               then confirm below to run the backtest.

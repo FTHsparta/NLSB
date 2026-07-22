@@ -1,5 +1,114 @@
 # Build Log
 
+## 2026-07-22 — Deflate: dedicated confirm view + results redesign (frontend only)
+
+**What:** Two /backtest UX changes, no new routes, no backend changes.
+(1) The gate no longer sits underneath the still-visible input textarea --
+it now REPLACES it, with a new "back to edit" affordance to return. (2) The
+results view earns real semantic color for the first time since Phase 7's
+strict monochrome rule: robustness-check rows now carry a pass/warn/danger
+icon and one-line read, driven entirely by backend-emitted fields, never a
+frontend threshold. Performance-metric VALUES stay monochrome throughout --
+only the tool's own judgments get color.
+
+**Lesson -- a bug report's vocabulary and the codebase's vocabulary aren't
+always the same thing, and only the code can arbitrate.** The task described
+the bug as being in the reducer's `confirming` phase; the actual reducer has
+a phase LITERALLY named `confirming` (the in-flight `/confirm` call), and a
+separate `gate` phase (the review-before-run screen) -- and a PINNED,
+EXISTING test already asserted `confirming`'s current spinner-only behavior
+was correct. Implementing the fix against the literal phase name would have
+broken that test outright; the actual bug (input and gate both mounted
+simultaneously) lives in `gate`. Grepping for every existing assertion on
+the input's testid before writing a line of code turned an assumption into
+a verified fact. Once fixed, a second bug surfaced immediately: `atGate`'s
+condition was "translation exists and we're not in results/loading" rather
+than "phase is literally gate/correcting" -- so the new BACK_TO_EDIT action
+(which deliberately keeps `translation` around, unlike RESET) left the gate
+rendering even after returning to `idle`. Fixed by gating on the phase name
+explicitly. Two bugs, same root cause: a boolean built from *proxies* for a
+state (translation shape, loading-ness) instead of the state itself drifts
+the moment a new transition is added that doesn't fit the old proxy's
+assumptions.
+
+**Lesson -- a payload's TypeScript types describe what IS there; they don't
+promise what a design brief ASSUMES is there.** The requested layout was
+verdict card -> monochrome headline-metric cards -> per-check rows. Reading
+`robustness.py` directly (not just the TS mirror) found that the "full"
+result has NO overall backtest metrics anywhere -- `BacktestMetrics` only
+exists on the no-exit branch's `strategy_metrics`/`benchmark_metrics`;
+`run_robustness`'s round-trip path never runs a plain full-window backtest
+of its own. The headline-metric-cards layer was quietly dropped for "full"
+results rather than filled with the nearest-looking numbers (walk-forward's
+fold-aggregated Sharpe is NOT the same claim as "the strategy's real
+performance," and rendering it as if it were would be exactly the kind of
+subtle flattery this tool exists to catch). Parked, not built.
+
+**Lesson -- an existing test can keep "passing" while quietly no longer
+meaning anything.** `color-invariants.test.tsx` asserted RobustnessPanel
+carries no saturated color at all. Giving check rows real color with a
+NEW, distinctly-named token family (`--check-pass/--check-warn/--check-danger`,
+lower-saturation than `--verdict-*` so the verdict card stays visually
+dominant) meant that old assertion's regex (checking for named Tailwind
+hues and the literal substring "verdict-") would keep returning green --
+not because the invariant still held, but because it was never written to
+catch a DIFFERENT color-token family. Left as-is, the test would have been
+lying about what it verifies. Rewrote it to assert the new tokens
+POSITIVELY appear where expected and stay absent everywhere else
+(mirroring `verdict-*`'s own exclusivity check) rather than exploit the
+technicality. The motion diff test (INV-4) needed the opposite treatment:
+it only ever inspected wrapper-level classes, never each section's own
+content, so it had ALWAYS tolerated VerdictCard's per-verdict color --
+adding regime/sensitivity color inside a sibling section changed nothing
+about what it was actually scoped to check. Documented both findings in
+the tests themselves, not just here.
+
+**Row-color rule, precisely:** sensitivity's `robustness_label` (a real
+backend enum -- "fragile (sharp peak)" is the one value `verdict.py` itself
+treats as flag-worthy) and regime's `marginal_flags[].confidence` /
+`concentrated_regime` presence are the only two checks with a genuine
+backend classification to color by. An overall LIKELY_OVERFIT verdict can
+escalate an ALREADY-flagged row from warn to danger, but never invents a
+flag on a row whose own data shows nothing (asserted directly: a clean
+regime stays pass-tier even when `verdict="LIKELY_OVERFIT"` is passed).
+Walk-forward and Deflated Sharpe Ratio have no backend-emitted per-check
+status today -- both render a neutral, uncolored marker rather than a
+fabricated pass. "Not computed" (zero tunable parameters is a real,
+honestly-possible shape) renders muted grey with the generic fallback
+string "Not computed for this strategy" -- never "N/A" for THIS new
+element, though the pre-existing per-cell null-number formatter (pinned by
+CONTRACT 4's fold-table assertions) keeps its own, separate "N/A"
+convention untouched.
+
+**Parked (backend, not done):** (1) `run_robustness`'s full-case branch has
+no overall `BacktestMetrics` for the strategy as stated over the full
+window -- needed before headline metric cards can honestly exist for
+round-trip results. (2) Walk-forward and DSR need a backend-emitted
+per-check status enum (mirroring sensitivity's `robustness_label`) before
+their rows can carry real color instead of a neutral marker.
+
+**Invariants:** INV-1 (gate integrity) untouched -- CONTRACT 5's tests
+unmodified, `/confirm` remains the sole run path, and the literal
+`confirming` phase's existing loading-view behavior (CONTRACT 12) is
+provably unmodified (asserted directly in the new suite). INV-2 (display
+corollary): every read/value is either a real backend field or one of five
+static, verdict-blind captions, proven byte-identical across two different
+real fixtures landing in the same severity bucket. INV-3: no new routes.
+INV-4: zero backend files touched (`git diff --stat backend/` empty);
+backend suite reran anyway, unchanged at 241/1-deselected. INV-5: entrance-
+only CSS motion reused as-is, no new library. INV-6: all 122 prior tests
+green unmodified; the one test whose OWN assertions needed rewriting
+(the confirmed-bull-concentration monochrome check) was rewritten to state
+the new rule explicitly, not silently weakened.
+
+**Counts:** frontend 122 -> 140 (+18: 6 confirm-view, 11 check-severity,
+1 new color-invariants case). tsc, eslint, `next build` clean, same route
+map. Backend untouched at 241/1-deselected.
+
+Next: on-device verification of the new confirm view and check-row colors;
+then the two parked backend items above, which unlock real headline
+metrics and full-color walk-forward/DSR rows.
+
 ## 2026-07-21 — Rename: NLSB → Deflate (user-facing only)
 
 **What:** Ahead of a public launch at deflate.app, every string a site visitor (or a `/docs` visitor, or a GitHub visitor) could actually see now reads "Deflate": the nav wordmark, all three page `<title>`s, the OpenGraph title/description (newly added — none existed before), the methodology page's prose, the FastAPI OpenAPI title, and the README heading. Zero backend logic changes, zero new client-side judgments, zero git-history rewriting.

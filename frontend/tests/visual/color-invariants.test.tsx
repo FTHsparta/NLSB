@@ -1,9 +1,24 @@
 /**
- * Phase 7 visual-pass invariants. The display-side corollary's visual
- * extension: the verdict accent is the ONLY saturated color anywhere on
- * screen, selected solely by the backend's verdict enum string through
+ * Phase 7 visual-pass invariants, AMENDED post-Phase-13 (results redesign).
+ *
+ * ORIGINAL rule (still true for everything except robustness-check rows):
+ * the verdict accent is the ONLY saturated color anywhere on screen,
+ * selected solely by the backend's verdict enum string through
  * `VerdictCard`'s static lookup -- never by a client-side threshold, and
- * never reused by any other component.
+ * never reused by any other component. Gate, chrome, error banners, and
+ * every raw performance-metric VALUE remain fully monochrome under this
+ * rule, unchanged.
+ *
+ * NEW rule: `RobustnessPanel`'s per-check ROWS may now carry semantic color
+ * from a second, distinct token family (`--check-pass/--check-warn/
+ * --check-danger`, deliberately lower-saturation than `--verdict-*`, so
+ * check color stays visually subordinate to the verdict card) -- but ONLY
+ * when mapped from a backend-emitted field (sensitivity's `robustness_label`,
+ * regime's `marginal_flags[].confidence`/`concentrated_regime`), never a
+ * frontend-computed threshold. `verdict-*` itself stays VerdictCard-exclusive,
+ * unchanged. See `RobustnessPanel.tsx`'s module docstring for the full rule
+ * and which two checks (walk-forward, DSR) have no backend-emitted status
+ * to color by yet.
  */
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
@@ -27,13 +42,16 @@ import type { TranslationPayload } from "@/lib/translation/types";
 import bullConcentrationConfirmedFixture from "@/fixtures/robustness/bull_concentration_confirmed.json";
 import noExitResultFixture from "@/fixtures/robustness/no_exit.json";
 import noExitWarningFixture from "@/fixtures/translation/no_exit_warning.json";
+import passFixture from "@/fixtures/robustness/pass.json";
 
 const BULL_CONCENTRATION_CONFIRMED = bullConcentrationConfirmedFixture as unknown as RobustnessResult;
 const NO_EXIT_RESULT = noExitResultFixture as unknown as RobustnessResult;
 const NO_EXIT_WARNING = noExitWarningFixture as unknown as TranslationPayload;
+const PASS_RESULT = passFixture as unknown as RobustnessResult;
 
 if (BULL_CONCENTRATION_CONFIRMED.kind !== "full") throw new Error("fixture is not a full result");
 if (NO_EXIT_RESULT.kind !== "no_exit") throw new Error("fixture is not a no_exit result");
+if (PASS_RESULT.kind !== "full") throw new Error("fixture is not a full result");
 
 /**
  * Any Tailwind utility applying a saturated hue at a numbered shade, e.g.
@@ -47,6 +65,14 @@ if (NO_EXIT_RESULT.kind !== "no_exit") throw new Error("fixture is not a no_exit
  * intentionally-scoped) tokens this phase introduces.
  */
 const SATURATED_COLOR_CLASS = /\b(?:bg|text|border(?:-[trblxy])?|ring|from|via|to|fill|stroke)-(?:red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)-\d{2,3}\b/;
+
+/**
+ * The NEW (post-Phase-13) check-outcome token family, scoped to
+ * `RobustnessPanel` exclusively -- same discipline as `verdict-`, checked
+ * the same way. Matches `text-check-pass`, `border-l-check-warn`,
+ * `bg-check-danger/10`, etc.
+ */
+const CHECK_COLOR_CLASS = /\bcheck-(?:pass|warn|danger)\b/;
 
 const VERDICTS: Verdict[] = ["PASS", "SHAKY", "LIKELY_OVERFIT", "UNTESTABLE"];
 
@@ -128,8 +154,8 @@ describe("INV-A / INV-B: SEVERITY_WARNING renders within 'I assumed', at structu
   });
 });
 
-describe("INV-2: the verdict palette is referenced ONLY by VerdictCard -- no other component applies a saturated color", () => {
-  it("RobustnessPanel renders a CONFIRMED bull-concentration flag with no saturated color and no verdict-* token", () => {
+describe("INV-2 (amended): verdict-* stays VerdictCard-exclusive; RobustnessPanel may now carry the SEPARATE check-* family", () => {
+  it("RobustnessPanel renders a CONFIRMED bull-concentration flag with check-* row color (danger tier), never a verdict-* token or a named Tailwind hue", () => {
     render(
       <RobustnessPanel
         sensitivity={BULL_CONCENTRATION_CONFIRMED.sensitivity}
@@ -139,38 +165,47 @@ describe("INV-2: the verdict palette is referenced ONLY by VerdictCard -- no oth
       />,
     );
     const html = screen.getByTestId("robustness-panel").innerHTML;
+    // The confirmed flag is real backend data -- this row is EXPECTED to
+    // carry semantic color now, via the new, distinct check-* family only.
+    expect(html).toMatch(CHECK_COLOR_CLASS);
+    // verdict-* remains VerdictCard-exclusive, and no component anywhere
+    // reaches for a raw named Tailwind hue -- only the two token families.
     expect(html).not.toMatch(SATURATED_COLOR_CLASS);
     expect(html).not.toMatch(/verdict-/);
   });
 
-  it("BuyHoldComparison (the no-exit, non-verdict result) carries no saturated color and no verdict-* token", () => {
+  it("BuyHoldComparison (the no-exit, non-verdict result) carries no saturated color, no verdict-* token, and no check-* token", () => {
     render(<BuyHoldComparison noExit={NO_EXIT_RESULT.no_exit} />);
     const html = screen.getByTestId("buy-hold-comparison").innerHTML;
     expect(html).not.toMatch(SATURATED_COLOR_CLASS);
     expect(html).not.toMatch(/verdict-/);
+    expect(html).not.toMatch(CHECK_COLOR_CLASS);
   });
 
-  it("AssumptionsView's SEVERITY_WARNING box carries no saturated color and no verdict-* token, despite its high prominence", () => {
+  it("AssumptionsView's SEVERITY_WARNING box carries no saturated color, no verdict-* token, and no check-* token, despite its high prominence", () => {
     render(<AssumptionsView restatement={NO_EXIT_WARNING.restatement!} assumptions={NO_EXIT_WARNING.assumptions} />);
     const html = screen.getByTestId("assumptions-view").innerHTML;
     expect(html).not.toMatch(SATURATED_COLOR_CLASS);
     expect(html).not.toMatch(/verdict-/);
+    expect(html).not.toMatch(CHECK_COLOR_CLASS);
     // The warning element still exists and is still structurally distinct
     // (role=alert) -- this phase changes its COLOR, not its structure.
     expect(screen.getByTestId("assumption-warning")).toHaveAttribute("role", "alert");
   });
 
-  it("ConfirmGate and TranslateInputView carry no saturated color and no verdict-* token", () => {
+  it("ConfirmGate and TranslateInputView carry no saturated color, no verdict-* token, and no check-* token", () => {
     render(<ConfirmGate defaultTicker="SPY" onConfirm={() => {}} />);
     expect(screen.getByTestId("confirm-gate").innerHTML).not.toMatch(SATURATED_COLOR_CLASS);
     expect(screen.getByTestId("confirm-gate").innerHTML).not.toMatch(/verdict-/);
+    expect(screen.getByTestId("confirm-gate").innerHTML).not.toMatch(CHECK_COLOR_CLASS);
 
     render(<TranslateInputView onSubmit={() => {}} />);
     expect(screen.getByTestId("translate-input-view").innerHTML).not.toMatch(SATURATED_COLOR_CLASS);
     expect(screen.getByTestId("translate-input-view").innerHTML).not.toMatch(/verdict-/);
+    expect(screen.getByTestId("translate-input-view").innerHTML).not.toMatch(CHECK_COLOR_CLASS);
   });
 
-  it("TranslateFlow's error banner (a failed /translate) carries no saturated color and no verdict-* token", async () => {
+  it("TranslateFlow's error banner (a failed /translate) carries no saturated color, no verdict-* token, and no check-* token", async () => {
     const api: TranslationApi = {
       translate: vi.fn().mockRejectedValue(new Error("network down")),
       correct: vi.fn(),
@@ -184,9 +219,10 @@ describe("INV-2: the verdict palette is referenced ONLY by VerdictCard -- no oth
     const html = screen.getByTestId("translate-error").outerHTML;
     expect(html).not.toMatch(SATURATED_COLOR_CLASS);
     expect(html).not.toMatch(/verdict-/);
+    expect(html).not.toMatch(CHECK_COLOR_CLASS);
   });
 
-  it("Phase 9 chrome (progress, disclaimers, methodology, results fallback) carries no saturated color and no verdict-* token", () => {
+  it("Phase 9 chrome (progress, disclaimers, methodology, results fallback) carries no saturated color, no verdict-* token, and no check-* token", () => {
     const surfaces: Array<[string, () => React.ReactElement]> = [
       ["translating-indicator", () => <ProgressIndicator testId="translating-indicator" label="Translating your strategy…" />],
       [
@@ -204,14 +240,36 @@ describe("INV-2: the verdict palette is referenced ONLY by VerdictCard -- no oth
       // Note: methodology testids intentionally avoid the literal "verdict-"
       // substring so this token scan stays meaningful here too.
       expect(html, `${testId} must not reuse a verdict token`).not.toMatch(/verdict-/);
+      expect(html, `${testId} must not reuse a check token`).not.toMatch(CHECK_COLOR_CLASS);
       unmount();
     }
   });
 
-  it("the results fallback (unexpected-shape branch) carries no saturated color and no verdict-* token", () => {
+  it("the results fallback (unexpected-shape branch) carries no saturated color, no verdict-* token, and no check-* token", () => {
     render(<RobustnessResultView result={{ kind: "full", verdict: null } as unknown as RobustnessResult} />);
     const html = screen.getByTestId("results-fallback").innerHTML;
     expect(html).not.toMatch(SATURATED_COLOR_CLASS);
     expect(html).not.toMatch(/verdict-/);
+    expect(html).not.toMatch(CHECK_COLOR_CLASS);
+  });
+
+  it("a PASSED check (no backend flag) gets a quiet check-pass ICON only -- its read text and values stay neutral", () => {
+    render(
+      <RobustnessPanel
+        sensitivity={PASS_RESULT.sensitivity}
+        walkForward={PASS_RESULT.walk_forward}
+        deflatedSharpe={PASS_RESULT.deflated_sharpe}
+        regime={PASS_RESULT.regime}
+      />,
+    );
+    const icons = screen.getAllByTestId("check-outcome-icon");
+    const passIcon = icons.find((el) => el.getAttribute("data-severity") === "pass");
+    expect(passIcon).toBeDefined();
+    expect(passIcon!.className).toMatch(/check-pass/);
+
+    // The pre-existing pinned figures stay monochrome -- untouched by this
+    // redesign (a raw Sharpe/degradation number is never colored).
+    expect(screen.getByTestId("stat-aggregate-is-sharpe").className).not.toMatch(CHECK_COLOR_CLASS);
+    expect(screen.getByTestId("stat-degradation").className).not.toMatch(CHECK_COLOR_CLASS);
   });
 });
