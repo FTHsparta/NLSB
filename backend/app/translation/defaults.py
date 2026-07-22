@@ -98,14 +98,14 @@ def _default_asset(ir: dict, assumptions: list[Assumption]) -> None:
             "must name a ticker."
         )
     if not asset.get("asset_class"):
+        # Filled to satisfy the schema, but deliberately NOT recorded as an
+        # Assumption (pre-launch honesty pass): nothing in the data or cost
+        # layer reads asset_class, so announcing "I assumed equity" would
+        # imply a per-asset-class capability (data source / cost model
+        # selection) the engine doesn't have. An Assumption here is
+        # user-facing copy — every recorded one renders in the "I assumed"
+        # list — and this field carries no meaning a user could act on.
         asset["asset_class"] = DEFAULT_ASSET_CLASS
-        assumptions.append(
-            Assumption(
-                field="asset.asset_class",
-                value=DEFAULT_ASSET_CLASS,
-                reason="Asset class not stated; defaulted to equity.",
-            )
-        )
     ir["asset"] = asset
 
 

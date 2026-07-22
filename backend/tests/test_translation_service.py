@@ -90,6 +90,80 @@ def test_confirm_rejects_invalid_ir():
         service.confirm({"not": "a valid ir"}, price_data)
 
 
+_STOP_BEARING_SPARSE_IR = {
+    "asset": {"ticker": "SPY"},
+    "indicators": [{"id": "rsi14", "type": "RSI"}],
+    "entry": {"left": "rsi14", "op": "<", "right": 30},
+    "exit": {"left": "rsi14", "op": ">", "right": 70},
+    "risk": {"stop_loss_pct": 0.05},
+}
+
+
+def test_translate_rejects_stop_loss_via_unsupported_path_never_reaching_gate():
+    """Pre-launch honesty fix: the engine never simulates stops (interpret_ir
+    doesn't read ir["risk"]; no sl_stop/tp_stop reaches vectorbt), so a
+    stop-bearing IR must be rejected DETERMINISTICALLY — the LLM won't
+    self-reject it (it's schema-valid). status="unsupported" with no
+    restatement means the frontend structurally cannot mount the gate
+    (atGate requires status ok AND a restatement)."""
+    client = FakeLLMClient([json.dumps(_STOP_BEARING_SPARSE_IR)])
+    response = service.translate("buy SPY when RSI < 30, sell at 70, 5% stop loss", llm_client=client)
+
+    assert response.status == "unsupported"
+    assert response.ir is None
+    assert response.restatement is None
+    assert "stop-loss" in response.message
+    assert "different strategy" in response.message
+
+
+def test_translate_rejects_take_profit_and_names_it():
+    sparse = {**_STOP_BEARING_SPARSE_IR, "risk": {"take_profit_pct": 0.10}}
+    client = FakeLLMClient([json.dumps(sparse)])
+    response = service.translate("buy SPY when RSI < 30, take profit at 10%", llm_client=client)
+
+    assert response.status == "unsupported"
+    assert "take-profit" in response.message
+
+
+def test_translate_rejects_combined_stop_and_target_naming_both():
+    sparse = {**_STOP_BEARING_SPARSE_IR, "risk": {"stop_loss_pct": 0.05, "take_profit_pct": 0.10}}
+    client = FakeLLMClient([json.dumps(sparse)])
+    response = service.translate("buy SPY when RSI < 30, 5% stop, 10% target", llm_client=client)
+
+    assert response.status == "unsupported"
+    assert "a stop-loss and a take-profit" in response.message
+
+
+def test_translate_with_null_risk_still_reaches_gate_unchanged():
+    """The rejection triggers on stated VALUES only — a null/absent risk
+    block (the overwhelmingly common case) proceeds to a normal gate payload."""
+    sparse = {**_STOP_BEARING_SPARSE_IR, "risk": {"stop_loss_pct": None, "take_profit_pct": None}}
+    client = FakeLLMClient([json.dumps(sparse)])
+    response = service.translate("buy SPY when RSI < 30, sell when RSI > 70", llm_client=client)
+
+    assert response.status == "ok"
+    assert response.ir is not None
+    assert response.restatement is not None
+
+
+def test_confirm_robustness_rejects_stop_bearing_ir_posted_directly():
+    """Defence in depth: even bypassing /translate entirely (a hand-crafted
+    POST /confirm), a stop-bearing IR must never produce results — the same
+    guard runs at the only run path."""
+    from app.translation.defaults import apply_defaults
+    from app.translation.interpreter import IRInterpreterError
+
+    close = _oscillating_close()
+    price_data = _price_data(close)
+    full_ir, assumptions = apply_defaults(_STOP_BEARING_SPARSE_IR)
+
+    with pytest.raises(IRInterpreterError, match="stop-loss"):
+        service.confirm_robustness(full_ir, price_data, assumptions)
+
+    with pytest.raises(IRInterpreterError, match="stop-loss"):
+        service.confirm(full_ir, price_data)
+
+
 def test_correct_re_translates_with_correction_context():
     prior_ir = {"asset": {"ticker": "SPY"}, "entry": {"left": "close", "op": "<", "right": 30}}
     corrected_sparse = {

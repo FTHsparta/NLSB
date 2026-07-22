@@ -75,7 +75,9 @@ def test_underspecified_strategy_surfaces_large_assumptions_list():
     result = translate_to_ir("buy when oversold", client)
 
     assert result.status == "ok"
-    # period, source, exit, asset_class, position x2, risk -> at least 5 distinct gaps
+    # period, source, exit, position x2, risk -> at least 5 distinct gaps
+    # (asset_class is filled but no longer announced -- it's decorative, see
+    # defaults._default_asset)
     assert len(result.assumptions) >= 5
 
 

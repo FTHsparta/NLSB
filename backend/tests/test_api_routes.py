@@ -205,6 +205,52 @@ def test_confirm_route_no_exit_assumption_short_circuits_to_buy_and_hold():
     assert body["verdict"] is None
 
 
+def test_translate_route_rejects_stop_bearing_ir_as_unsupported(monkeypatch):
+    """Pre-launch honesty fix: a schema-valid IR carrying a stop-loss is
+    rejected deterministically (the engine doesn't simulate stops), reusing
+    the existing unsupported surface — the user never sees a gate for it."""
+
+    def _spy(*args, **kwargs):
+        raise AssertionError("must not be called for a stop-bearing request")
+
+    monkeypatch.setattr(main.service, "run_robustness", _spy)
+    monkeypatch.setattr(main.service, "run_ir_backtest", _spy)
+    stop_bearing = {**_SIMPLE_SPARSE_IR, "risk": {"stop_loss_pct": 0.05}}
+    _override_llm([json.dumps(stop_bearing)])
+
+    resp = client.post("/translate", json={"nl_text": "buy SPY when RSI < 30, with a 5% stop loss"})
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["status"] == "unsupported"
+    assert body["ir"] is None
+    assert body["restatement"] is None
+    assert "stop-loss" in body["message"]
+
+
+def test_confirm_route_rejects_stop_bearing_ir_with_400():
+    """Same guard at the only run path: a stop-bearing IR POSTed straight to
+    /confirm (bypassing translate) gets a 400 with the honest reason, never
+    results that silently ignore the stop."""
+    _override_price_fetcher()
+    full_ir = {
+        "asset": {"ticker": "SPY", "asset_class": "equity"},
+        "indicators": [{"id": "rsi14", "type": "RSI", "params": {"period": 14}, "source": "close"}],
+        "entry": {"left": "rsi14", "op": "<", "right": 30},
+        "exit": {"left": "rsi14", "op": ">", "right": 70},
+        "position": {"direction": "long", "size": "full"},
+        "risk": {"stop_loss_pct": 0.05, "take_profit_pct": None},
+    }
+
+    resp = client.post(
+        "/confirm",
+        json={"ir": full_ir, "assumptions": [], "ticker": "SPY", "start": "2015-01-01"},
+    )
+
+    assert resp.status_code == 400
+    assert "stop-loss" in resp.json()["detail"]
+
+
 def test_confirm_route_rejects_invalid_ir():
     _override_price_fetcher()
     resp = client.post(

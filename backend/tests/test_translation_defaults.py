@@ -81,10 +81,16 @@ def test_stated_exit_is_preserved():
     assert not any(a.field == "exit" for a in assumptions)
 
 
-def test_unstated_asset_class_defaults_to_equity():
+def test_unstated_asset_class_defaults_to_equity_without_a_user_facing_assumption():
+    """REWRITTEN (pre-launch honesty pass): this previously asserted an
+    `asset.asset_class` Assumption was recorded. Assumptions are user-facing
+    copy (every one renders in the "I assumed" list), and asset_class is
+    decorative — nothing in the data or cost layer reads it — so announcing
+    it implied a per-asset-class capability the engine lacks. The field is
+    still filled (the schema requires it) but silently, as internal plumbing."""
     full_ir, assumptions = apply_defaults(_sparse())
     assert full_ir["asset"]["asset_class"] == DEFAULT_ASSET_CLASS
-    assert any(a.field == "asset.asset_class" for a in assumptions)
+    assert not any(a.field == "asset.asset_class" for a in assumptions)
 
 
 def test_unstated_position_defaults_to_long_full():

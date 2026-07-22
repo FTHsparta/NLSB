@@ -140,6 +140,41 @@ def test_renderer_no_warnings_omits_heads_up_section():
     assert "Heads up" not in text
 
 
+def test_renderer_never_renders_stop_loss_or_take_profit():
+    """Pre-launch honesty pass: the engine does not simulate stops, and a
+    stop-bearing IR is rejected upstream (service.unsimulated_risk_reason)
+    before rendering. This test hands the renderer a stop-bearing IR
+    DIRECTLY — bypassing that rejection — to prove the renderer itself has
+    no code path that can display a stop/target that won't run. (The old
+    renderer printed "Stop-loss: 5.0% below entry price" here; that was the
+    phantom-confirmation bug.)"""
+    full_ir, assumptions = _full_ir_and_assumptions()
+    full_ir["risk"] = {"stop_loss_pct": 0.05, "take_profit_pct": 0.10}
+    text = render_confirmation(full_ir, assumptions)
+    assert "Stop-loss" not in text
+    assert "Take-profit" not in text
+    assert "5.0%" not in text
+    assert "10.0%" not in text
+
+
+def test_renderer_never_renders_asset_class():
+    """Pre-launch honesty pass: asset_class is decorative (nothing in the
+    data or cost layer reads it), so displaying it — previously
+    "on SPY (equity):" and an "Asset class: equity" stated row — implied a
+    capability the engine lacks. The ticker line stays; the class is gone."""
+    sparse = {
+        "asset": {"ticker": "SPY", "asset_class": "equity"},
+        "indicators": [{"id": "rsi14", "type": "RSI", "params": {"period": 14}, "source": "close"}],
+        "entry": {"left": "rsi14", "op": "<", "right": 30},
+        "exit": {"left": "rsi14", "op": ">", "right": 70},
+    }
+    full_ir, assumptions = apply_defaults(sparse)
+    text = render_confirmation(full_ir, assumptions)
+    assert "on SPY:" in text
+    assert "equity" not in text
+    assert "Asset class" not in text
+
+
 def _full_ir_and_assumptions_no_exit():
     sparse = {
         "asset": {"ticker": "SPY"},

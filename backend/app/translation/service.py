@@ -44,6 +44,47 @@ def _require_runnable_window(ir: dict, price_data: pd.DataFrame) -> None:
         )
 
 
+def unsimulated_risk_reason(ir: dict) -> str | None:
+    """Reason to reject *ir*, or None if it carries no stop-loss/take-profit.
+
+    The IR schema accepts `risk.stop_loss_pct`/`take_profit_pct`, but the
+    interpreter never reads `ir["risk"]` and the engine never places a
+    stop/target order (`_build_ir_portfolio` passes no `sl_stop`/`tp_stop`
+    to vectorbt). Running such an IR would report results for a DIFFERENT
+    strategy than the one the user stated — so any non-null stop/target is
+    rejected here, deterministically, in our code. This must never be left
+    to the translator prompt: a stop-bearing IR is schema-valid, so the
+    LLM has no reason to self-reject it.
+    """
+    risk = ir.get("risk")
+    if not isinstance(risk, dict):
+        return None
+    stated = [
+        label
+        for key, label in (("stop_loss_pct", "a stop-loss"), ("take_profit_pct", "a take-profit"))
+        if risk.get(key) is not None
+    ]
+    if not stated:
+        return None
+    what = " and ".join(stated)
+    return (
+        f"This strategy includes {what}, and Deflate doesn't simulate stop-loss or "
+        "take-profit orders yet. Running it anyway would report results for a "
+        "different strategy than the one you described — one that never exits at "
+        "your stop or target. Restate it without the stop/target, or use a "
+        "signal-based exit instead (e.g. \"sell when RSI goes above 70\")."
+    )
+
+
+def _reject_unsimulated_risk(ir: dict) -> None:
+    """`unsimulated_risk_reason` as a raise — the /confirm-side guard, so a
+    stop-bearing IR POSTed directly to the API (bypassing translate) can
+    never produce results either."""
+    reason = unsimulated_risk_reason(ir)
+    if reason is not None:
+        raise IRInterpreterError(reason)
+
+
 @dataclass
 class TranslationResponse:
     status: str  # "ok" | "unsupported" | "error"
@@ -67,6 +108,19 @@ def translate(nl_text: str, llm_client: LLMClient | None = None) -> TranslationR
         return TranslationResponse(
             status=result.status,
             message=result.message,
+            retries=len(result.attempts) - 1 if result.attempts else 0,
+        )
+
+    # Deterministic post-validation gate check: a schema-valid IR can still
+    # describe something the engine won't honestly run (a stop/target). This
+    # runs BEFORE the restatement is built, so a stop-bearing IR never
+    # becomes a confirmable gate payload — it reuses the existing
+    # "unsupported" surface instead of confirming a strategy that wouldn't run.
+    risk_reason = unsimulated_risk_reason(result.full_ir)
+    if risk_reason is not None:
+        return TranslationResponse(
+            status="unsupported",
+            message=risk_reason,
             retries=len(result.attempts) - 1 if result.attempts else 0,
         )
 
@@ -111,6 +165,7 @@ def confirm(
 ) -> BacktestResult:
     """Run the backtest for a user-confirmed IR. The only place this happens."""
     validate_ir(ir)
+    _reject_unsimulated_risk(ir)
     return run_ir_backtest(ir, price_data, fees=fees, slippage=slippage)
 
 
@@ -133,5 +188,6 @@ def confirm_robustness(
     assumption, not re-derived from the IR alone.
     """
     validate_ir(ir)
+    _reject_unsimulated_risk(ir)
     _require_runnable_window(ir, price_data)
     return run_robustness(ir, price_data, assumptions, fees=fees, slippage=slippage)

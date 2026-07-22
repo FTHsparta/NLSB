@@ -97,6 +97,21 @@ describe("CONTRACT 4: displayed assumption/restatement text equals renderer.py's
     expect(youSpecified.textContent).toContain("Entry condition");
     expect(youSpecified.textContent).toContain("Exit condition");
   });
+
+  it("never displays asset_class or a stop-loss/take-profit anywhere in the confirmation surface", () => {
+    // Pre-launch honesty pass: asset_class is decorative (nothing in the
+    // engine's data or cost layer reads it), and stop/target orders are not
+    // simulated (stop-bearing IRs are rejected before a gate payload
+    // exists). The fixtures are real backend output — if either ever leaks
+    // back into renderer.py/apply_defaults, this fails here too, not just
+    // in the backend suite.
+    render(<AssumptionsView restatement={ORDINARY.restatement!} assumptions={ORDINARY.assumptions} />);
+    const view = screen.getByTestId("assumptions-view");
+    expect(view.textContent).not.toContain("equity");
+    expect(view.textContent).not.toContain("asset_class");
+    expect(view.textContent).not.toContain("Stop-loss");
+    expect(view.textContent).not.toContain("Take-profit");
+  });
 });
 
 describe("CONTRACT 6 (INV-A): the gate's layout honors the backend's stated-vs-assumed split -- it lays the categorization out, it never re-derives it", () => {

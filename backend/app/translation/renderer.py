@@ -33,22 +33,29 @@ _NO_EXIT_PROSE = (
 def render_confirmation(full_ir: dict, assumptions: list[Assumption]) -> str:
     """Render the two-section confirmation text for a fully-defaulted IR.
 
-    Section 1 is the plain-English strategy itself (entry/exit/position/risk).
+    Section 1 is the plain-English strategy itself (entry/exit/position).
     Section 2 splits "You specified" from "I assumed (you didn't specify
     these)", driven entirely by *assumptions* — the list `apply_defaults`
     produced, not a second guess by this function.
+
+    Two fields are deliberately NEVER rendered (pre-launch honesty pass):
+    - `risk` (stop-loss/take-profit): the engine does not simulate stops, and
+      any IR carrying a non-null stop/target is rejected upstream
+      (`service.unsimulated_risk_reason`) before it can reach this renderer.
+      Keeping no render path here means no future caller can display a stop
+      that won't run — "what you confirm is what runs" stays structural.
+    - `asset.asset_class`: decorative — nothing in the data or cost layer
+      reads it, so displaying it would imply a per-asset-class capability
+      (crypto/futures handling) the engine doesn't have.
     """
     indicators_by_id = {ind["id"]: ind for ind in full_ir.get("indicators", [])}
     assumed_fields = {a.field for a in assumptions}
 
     asset = full_ir["asset"]
     position = full_ir["position"]
-    risk = full_ir.get("risk")
 
     lines: list[str] = []
-    lines.append(
-        f"Here's what I'm about to backtest on {asset['ticker']} ({asset['asset_class']}):"
-    )
+    lines.append(f"Here's what I'm about to backtest on {asset['ticker']}:")
     lines.append(f"- Entry: buy when {_condition_to_english(full_ir['entry'], indicators_by_id)}")
     if full_ir["exit"] == NO_EXIT_CONDITION:
         lines.append(f"- Exit: {_NO_EXIT_PROSE}")
@@ -57,13 +64,6 @@ def render_confirmation(full_ir: dict, assumptions: list[Assumption]) -> str:
     lines.append(
         f"- Position: {position['direction']} only, {position['size']} capital allocation per trade"
     )
-    if risk:
-        sl = risk.get("stop_loss_pct")
-        tp = risk.get("take_profit_pct")
-        if sl is not None:
-            lines.append(f"- Stop-loss: {sl * 100:.1f}% below entry price")
-        if tp is not None:
-            lines.append(f"- Take-profit: {tp * 100:.1f}% above entry price")
 
     lines.append("")
     lines.append("You specified:")
@@ -106,9 +106,6 @@ def _stated_summary(
     # the translator/user chose (e.g. "rsi14"), not a fixed English word --
     # capitalizing it would alter that identifier's text, not just its case.
     stated.append(f"Ticker: {asset['ticker']}")
-    if "asset.asset_class" not in assumed_fields:
-        stated.append(f"Asset class: {asset['asset_class']}")
-
     stated.append("Entry condition")
     if "exit" not in assumed_fields:
         stated.append("Exit condition")
@@ -122,13 +119,6 @@ def _stated_summary(
 
     if "position.direction" not in assumed_fields and "position.size" not in assumed_fields:
         stated.append("Position sizing")
-
-    risk = full_ir.get("risk")
-    if risk is not None and "risk" not in assumed_fields:
-        if "risk.stop_loss_pct" not in assumed_fields and risk.get("stop_loss_pct") is not None:
-            stated.append("Stop-loss")
-        if "risk.take_profit_pct" not in assumed_fields and risk.get("take_profit_pct") is not None:
-            stated.append("Take-profit")
 
     return stated
 
