@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 
 import { SiteShell } from "@/components/chrome/SiteShell";
+import { Analytics } from "@vercel/analytics/next";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -17,10 +18,6 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Deflate",
   description: "An honest backtester: plain-English strategy in, a verdict you can trust out.",
-  // No OpenGraph tags existed before this rename; adding the minimum so a
-  // shared link preview reads "Deflate" too, reusing the title/description
-  // above verbatim -- no new copy. Page-level metadata below only
-  // overrides `title`, so this object is inherited unchanged site-wide.
   openGraph: {
     title: "Deflate",
     description: "An honest backtester: plain-English strategy in, a verdict you can trust out.",
@@ -40,6 +37,7 @@ export default function RootLayout({
     >
       <body className="min-h-full flex flex-col bg-background text-foreground">
         <SiteShell>{children}</SiteShell>
+        <Analytics />
       </body>
     </html>
   );
