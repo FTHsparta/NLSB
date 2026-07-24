@@ -1,5 +1,67 @@
 # Build Log
 
+## 2026-07-24 — Brand icon set: install icon.svg, retire favicon.ico, flag apple-icon SVG gap
+
+**What:** Frontend chrome only, no backend, no UI. Installed the two-candlestick
+brand mark as `app/icon.svg` (off-white `#FAFAFA` on near-black `#0A0A0A`,
+final artwork, byte-for-byte as supplied), deleted the stale
+`app/favicon.ico`, and installed the Apple touch variant as a user-supplied
+`app/apple-icon.png` (180×180) — because the SVG couldn't do that job; see the
+lesson below.
+
+**Lesson — "read the guide" earned its keep by turning a silent no-op into a
+caught one.** The obvious move was to drop `icon.svg` AND `apple-icon.svg` in
+`app/` and call it done — both are "file-convention icons," symmetric on the
+surface. The bundled Next 16.2.9 doc's file-type table is where the symmetry
+breaks: the `icon` convention accepts `.svg`, but the `apple-icon` static-file
+convention accepts only `.jpg/.jpeg/.png`. An `apple-icon.svg` isn't an error
+— it's worse, it's INERT: Next neither serves an `/apple-icon` route nor emits
+an `apple-touch-icon` link, so the file sits on disk looking installed while
+doing nothing. Reading the table before writing meant this surfaced as a
+flagged decision, not a "why is my iPhone home-screen icon blank" bug weeks
+after launch. (It's not purely a Next quirk either — iOS Safari has never
+reliably rendered SVG touch icons; PNG is the format Apple actually wants.)
+
+**Lesson — verify chrome against the emitted `<head>`, never the source.** A
+favicon "install" is easy to declare done from the file tree alone. The real
+proof is what ships in the prerendered HTML: `next build` then grepping
+`.next/server/app/index.html` showed exactly one icon link —
+`<link rel="icon" href="/icon.svg?<hash>" sizes="any" type="image/svg+xml">`
+— with zero remaining `favicon` references and no `apple-touch-icon` link.
+That single grep confirmed three things at once: the new mark ships, the old
+`favicon.ico` is truly gone (it wins precedence over `icon.svg`, so deleting
+it was load-bearing, not cosmetic), and the apple gap is real, not assumed.
+The build route table corroborated: `/icon.svg` present, no `/apple-icon`, and
+the navigable map (`/`, `/backtest`, `/methodology`) unchanged — the icon
+endpoints are file conventions, not routes.
+
+**Decision, not silently taken:** rather than deviate from "install the SVG
+byte-for-byte" by quietly rasterizing to PNG or redrawing the candlesticks in
+`ImageResponse` JSX (a redraw, explicitly forbidden), the apple variant was
+put back to the user, who exported `app/apple-icon.png` (180×180 RGB) himself.
+It was copied in byte-for-byte (`cmp`-verified, not re-encoded — a re-encode
+would be a redraw through the back door), and no code was needed: the
+`apple-icon` file convention auto-generated the link the moment the PNG
+existed. The inert `apple-icon.svg` was removed so it can't masquerade as
+configured. Post-install `<head>` now carries both links — `apple-touch-icon`
+(`sizes="180x180" type="image/png"`) and `icon` (`sizes="any"
+type="image/svg+xml"`), each content-hashed — with still zero `favicon` refs.
+
+**Invariants:** No backend change (`git diff backend/` empty). No app UI, no
+verdict-color surface touched — the mark is monochrome regardless. No test
+pinned a favicon path, head link, or route count (the only `icon` testid,
+`check-outcome-icon`, is the results-view severity glyph), so nothing needed
+rewriting. tsc, eslint clean; vitest 147/147 unchanged; `next build` green and
+emitting `/icon.svg` with no `favicon.ico` route.
+
+**Files:** added `app/icon.svg` and `app/apple-icon.png`; deleted
+`app/favicon.ico`. (`apple-icon.svg` was written, proven inert, and removed
+within this session — net zero.)
+
+Next: after deploy, re-check the actual favicon + iOS "Add to Home Screen"
+render on real devices (Next content-hashes both assets, so a stale cached
+icon shouldn't linger, but confirm) — then the launch-blocking chrome is done.
+
 ## 2026-07-22 (4) — SEO + social-preview chrome: metadataBase, generated OG card, sitemap, robots
 
 **What:** Frontend-only, static SEO/share metadata — zero backend, zero run
