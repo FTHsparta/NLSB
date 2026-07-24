@@ -1119,3 +1119,65 @@ tsc, eslint, next build clean throughout.
 
 Next: on-device verification, production confirm wall-clock, analytics
 toggle, custom domain decision — then the launch post.
+
+## 2026-07-22 — Analytics, SEO chrome, and a dependency that wasn't declared
+
+Two pieces of pre-launch instrumentation, plus a lesson about what
+"it builds on my machine" is worth.
+
+Vercel Analytics and Speed Insights went in so launch day produces real
+numbers instead of an anecdote. The trap they carried: both were imported
+in application code before either was declared in package.json, so the
+build was broken at those commits and would have failed the Vercel deploy.
+It surfaced only when a later session ran the full build. The rule that
+would have caught it is the one already in force everywhere else here —
+green before handback, and the build is part of green. A commit that
+passes tests but not `next build` isn't green, it's untested.
+
+The SEO/social layer landed clean: metadataBase pinned to the production
+origin, complete OpenGraph and Twitter tags reusing the existing
+title/description verbatim rather than inventing new marketing copy, a
+code-generated OG card in the site's dark register, plus sitemap.ts and
+robots.ts. Every canonical and OG URL is absolute to the production
+domain by design — preview deployments must never get indexed under the
+wrong host, and a relative canonical is exactly how that happens.
+
+The OG card is the piece with the worst failure mode: it's invisible
+until someone shares a link, and then it's the first thing they see.
+Worth verifying by hand rather than trusting the build.
+
+Suite: [FINAL BACKEND] / [FINAL FRONTEND], tsc, eslint, next build clean.
+
+Next: point the real domain at it.
+
+## 2026-07-23 — Domain cutover to deflate.app, and search indexing
+
+The site moved to its own domain, which turned out to be a good test of
+whether the deployment's moving parts were actually understood or just
+happened to be working.
+
+Attaching the domain broke the app immediately, in the way it should
+have: the browser's origin changed, and the backend's CORS allowlist
+still named the old Vercel host. Origins match exactly or not at all —
+scheme included, no trailing slash, apex and www distinct. The fix was a
+one-variable change on the backend host with no rebuild, because the
+allowlist is read at startup rather than compiled in. Worth noting the
+asymmetry that keeps catching me out: frontend env vars are inlined at
+build time and need a redeploy to change, backend ones are read at
+runtime and don't. Same word, two different lifetimes.
+
+A related non-bug: preview deployments still fail CORS, since their
+hostnames are ephemeral and deliberately not allowlisted. That's correct
+behavior — a preview build shouldn't be able to spend the production API
+budget — but it looks like a break if you forget why.
+
+Search Console: property verified, sitemap submitted [after Google's
+sitemaps field rejected a relative path and wanted the absolute URL —
+the Domain property type doesn't assume a scheme], all three indexable
+routes submitted for indexing. Being honest about what this buys:
+nobody is searching for an honest backtester yet, so search isn't the
+distribution channel. The point is that when someone hears the name and
+looks it up, the real thing comes back.
+
+Next: [icon set, link-preview verification, on-device runthrough, and
+the confirm wall-clock — still unmeasured].
