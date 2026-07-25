@@ -1,5 +1,56 @@
 # Build Log
 
+## 2026-07-25 — OG card: swap wordmark-only for the mark + wordmark lockup
+
+**What:** Frontend marketing asset only, no backend, no app UI. Replaced the
+Open Graph card's composition — previously wordmark + hairline + tagline — with
+the full brand lockup: the two-candlestick mark, then "Deflate", then the
+tagline, centered on the same `#0A0A0A` near-black as the app icons. Exports
+(`size` 1200×630, `contentType` image/png, `alt`), the font handling (none —
+Satori's bundled default sans), and `twitter-image.tsx`'s re-export are all
+untouched; only the JSX changed.
+
+**Lesson — for a rasterized-at-build card, "renders in a browser" is the wrong
+bar; "Satori rasterizes it" is the only one that counts.** The mark is a
+vector shape, and the reflex is inline `<svg>`. But this card is drawn by
+Satori (via `next/og`), whose SVG support is partial and version-dependent —
+an `<svg>` that looks right in a browser preview can silently drop or mangle
+elements at build time, and the failure only shows up when someone shares the
+link. So the mark is built from four absolutely-positioned `<div>`s inside a
+154×178 relative box instead: plain rects are the one thing Satori rasterizes
+identically to a browser, every time. Verified by decoding the actual emitted
+PNG (1200×630, valid header) rather than trusting that the build "compiled" —
+compilation and rasterization are different failure surfaces here.
+
+**Lesson — a seam-free mark is a geometry guarantee, not a paint-order hope.**
+The wicks are full-height strips (left 29→178, right 0→178); the bodies are
+shorter blocks that sit ON the wicks. Drawing wicks first and bodies second so
+the bodies paint over them is the belt — but the suspenders is that each body's
+rectangle actually OVERLAPS its wick's x-span and y-range (left body x0–58
+swallows the wick's x23–35 across y58–154; right body likewise), so the shape
+is one connected region regardless of order, and no rectangle floats detached.
+Same `#FAFAFA` everywhere means even the overlaps are invisible. Order plus
+overlap, not order alone.
+
+**Satori's strict-mode tax, paid up front:** any element with more than one
+child needs an explicit `display: flex`, and that includes the mark container
+even though its four children are absolutely positioned (out of flow). Set it
+explicitly on the root column and the mark box rather than discovering the
+"Expected <div> to have explicit display" error at build time.
+
+**Invariants:** no backend change; no app UI; navigable route map unchanged
+(`/opengraph-image` and `/twitter-image` are file-convention endpoints, still
+present). The verdict-color invariant is untouched — the card is monochrome
+(`#FAFAFA` mark/wordmark, `#8B8B8B` tagline) regardless. No test pinned OG
+output or alt, so none needed rewriting.
+
+**Counts:** frontend tests 147 → 147 (marketing asset, verified through the
+emitted PNG, not a component test). tsc, eslint, `next build` clean.
+
+Next: on a real deploy, re-share the link into Slack/X/iMessage and confirm the
+lockup renders as intended in an actual scraper's card, not just as a valid
+local PNG.
+
 ## 2026-07-24 — Brand icon set: install icon.svg, retire favicon.ico, flag apple-icon SVG gap
 
 **What:** Frontend chrome only, no backend, no UI. Installed the two-candlestick
