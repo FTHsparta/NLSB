@@ -23,7 +23,7 @@ import os
 import re
 from datetime import datetime, timezone
 
-from fastapi import HTTPException
+from fastapi import HTTPException, Request
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 
@@ -32,10 +32,62 @@ logger = logging.getLogger("app.abuse")
 
 # --- Rate limiting (per client IP) ------------------------------------------
 
+# Used when neither the forwarded header nor the direct peer yields anything.
+# Degrading to one shared bucket is acceptable; raising out of the key function
+# (which runs before the route) is not.
+UNKNOWN_CLIENT = "unknown"
+
+
+def trust_proxy_headers() -> bool:
+    """Default OFF: only turn this on where the service actually sits behind a
+    proxy we control (Railway/Render), never for a directly-exposed process."""
+    return os.environ.get("NLSB_TRUST_PROXY_HEADERS", "false").lower() == "true"
+
+
+def client_identity(request: Request) -> str:
+    """Rate-limit bucket key: the visitor's address, not the proxy's.
+
+    In production the service sits behind Railway's edge proxy, so the TCP peer
+    (`request.client.host`, what slowapi's default `get_remote_address` returns)
+    is the PROXY for every visitor -- collapsing all traffic into ONE per-IP
+    bucket, where real users block each other. Railway's proxy sets the true
+    client address as the FIRST (leftmost) entry of `X-Forwarded-For`, so that
+    is what we key on when `NLSB_TRUST_PROXY_HEADERS` says we are behind it.
+
+    TRADEOFF (accepted): trusting the leftmost entry means a determined client
+    can send its own `X-Forwarded-For` and rotate the value to evade the per-IP
+    limit. We accept that because the per-IP limiter is not what protects
+    spend -- the GLOBAL daily circuit breaker (`SpendBreaker`) is, and it counts
+    every request regardless of who claims to be sending it. The per-IP limit
+    exists to stop accidental and casual overuse (a stuck retry loop, one
+    enthusiastic user), which it still does correctly. Trusting the leftmost
+    entry is also Railway's own documented recommendation, since its edge
+    controls that position; keying on the rightmost entry instead would be
+    spoof-proof but would break the moment the hop count changes.
+
+    We deliberately do NOT consult `X-Real-IP`: on Railway it is currently set
+    to the CDN edge IP rather than the visitor's when traffic routes through
+    the CDN (a known upstream bug), so it would silently reintroduce exactly
+    the shared-bucket failure this function exists to fix.
+    """
+    if trust_proxy_headers():
+        forwarded = request.headers.get("x-forwarded-for")
+        if forwarded:
+            # Handles both a single value and a comma-separated multi-hop chain.
+            first = forwarded.split(",")[0].strip()
+            if first:
+                return first
+    try:
+        direct = get_remote_address(request)
+    except Exception:  # pragma: no cover - malformed scope, never worth a 500
+        direct = ""
+    return direct or UNKNOWN_CLIENT
+
+
 # One process-wide limiter with in-memory ("memory://") fixed-window storage.
 # In-memory is acceptable for a single-process V1; a multi-process deploy
 # would need a shared store (e.g. Redis) for the counts to be global.
-limiter = Limiter(key_func=get_remote_address, storage_uri="memory://")
+limiter = Limiter(key_func=client_identity, storage_uri="memory://")
 
 
 def rate_limiting_enabled() -> bool:

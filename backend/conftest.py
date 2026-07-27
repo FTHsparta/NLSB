@@ -21,6 +21,9 @@ def _isolate_abuse_protection(monkeypatch):
     # Off by default for the suite; opt-in tests override these via setenv.
     monkeypatch.setenv("NLSB_RATE_LIMIT_ENABLED", "false")
     monkeypatch.setenv("NLSB_LLM_DAILY_CAP", "1000000")
+    # Pinned (not just left to its default) so a developer with this set in
+    # their shell can't silently change which bucket a test request lands in.
+    monkeypatch.setenv("NLSB_TRUST_PROXY_HEADERS", "false")
 
     # Clear process-global counters so no test inherits another's usage.
     abuse.spend_breaker.reset()

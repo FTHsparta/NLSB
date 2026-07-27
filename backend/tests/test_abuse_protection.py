@@ -15,10 +15,10 @@ import logging
 
 import pandas as pd
 import pytest
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 
-from app import main
+from app import abuse, main
 from app.data import market_data
 from app.main import app
 
@@ -81,8 +81,8 @@ def _override_raising_llm(exc):
     return fake
 
 
-def _translate(nl_text="buy SPY when RSI < 30, sell when RSI > 70"):
-    return client.post("/translate", json={"nl_text": nl_text})
+def _translate(nl_text="buy SPY when RSI < 30, sell when RSI > 70", headers=None):
+    return client.post("/translate", json={"nl_text": nl_text}, headers=headers)
 
 
 def _confirm(ticker="SPY", ir=None):
@@ -133,6 +133,115 @@ def test_confirm_has_its_own_limit(monkeypatch):
     assert _confirm().status_code == 200
     assert _confirm().status_code == 200
     assert _confirm().status_code == 429
+
+
+# --- TASK 1b: proxy-aware rate-limit key ------------------------------------
+#
+# Behind Railway's edge proxy the TCP peer is the PROXY for every visitor, so
+# keying on it puts all traffic in one bucket and real users block each other.
+# `client_identity` keys on the leftmost X-Forwarded-For entry instead -- but
+# only when NLSB_TRUST_PROXY_HEADERS is on, so local dev is unchanged.
+
+
+def _fake_request(headers=None, client=("10.0.0.1", 51234)):
+    """A minimal ASGI scope is enough: the key function only reads headers and
+    request.client, never a body."""
+    return Request(
+        {
+            "type": "http",
+            "method": "POST",
+            "path": "/translate",
+            "headers": [
+                (k.lower().encode("latin-1"), v.encode("latin-1"))
+                for k, v in (headers or {}).items()
+            ],
+            "client": client,
+        }
+    )
+
+
+def test_key_func_uses_leftmost_forwarded_entry_when_trusted(monkeypatch):
+    monkeypatch.setenv("NLSB_TRUST_PROXY_HEADERS", "true")
+    req = _fake_request({"X-Forwarded-For": "203.0.113.7, 100.64.0.2, 100.64.0.9"})
+    assert abuse.client_identity(req) == "203.0.113.7"
+
+
+def test_key_func_uses_direct_address_when_header_absent(monkeypatch):
+    monkeypatch.setenv("NLSB_TRUST_PROXY_HEADERS", "true")
+    assert abuse.client_identity(_fake_request()) == "10.0.0.1"
+
+
+def test_key_func_ignores_forwarded_header_when_trust_disabled(monkeypatch):
+    # The gate: with trust off the header is inert, even when present. This is
+    # what keeps a directly-exposed process un-spoofable.
+    monkeypatch.setenv("NLSB_TRUST_PROXY_HEADERS", "false")
+    req = _fake_request({"X-Forwarded-For": "203.0.113.7"})
+    assert abuse.client_identity(req) == "10.0.0.1"
+
+
+def test_key_func_default_is_trust_disabled(monkeypatch):
+    # Unset (not just "false") must behave identically to today.
+    monkeypatch.delenv("NLSB_TRUST_PROXY_HEADERS", raising=False)
+    req = _fake_request({"X-Forwarded-For": "203.0.113.7"})
+    assert abuse.client_identity(req) == "10.0.0.1"
+
+
+@pytest.mark.parametrize(
+    "header_value, expected",
+    [
+        ("  203.0.113.7  ", "203.0.113.7"),  # surrounding whitespace
+        ("203.0.113.7", "203.0.113.7"),  # single value, no chain
+        ("  203.0.113.7 ,100.64.0.2 ", "203.0.113.7"),  # whitespace in a chain
+        ("", "10.0.0.1"),  # empty header -> direct address
+        (",,", "10.0.0.1"),  # malformed: empty leftmost -> direct address
+        ("   ", "10.0.0.1"),  # whitespace-only -> direct address
+    ],
+)
+def test_key_func_handles_odd_header_values_without_raising(monkeypatch, header_value, expected):
+    monkeypatch.setenv("NLSB_TRUST_PROXY_HEADERS", "true")
+    req = _fake_request({"X-Forwarded-For": header_value})
+    assert abuse.client_identity(req) == expected
+
+
+def test_key_func_falls_back_to_sentinel_rather_than_raising(monkeypatch):
+    # Nothing resolvable at all: the limiter must degrade to a shared bucket,
+    # never blow up in the key function (which runs before the route).
+    monkeypatch.setenv("NLSB_TRUST_PROXY_HEADERS", "true")
+    monkeypatch.setattr(abuse, "get_remote_address", lambda request: "")
+    assert abuse.client_identity(_fake_request(client=None)) == abuse.UNKNOWN_CLIENT
+
+
+def test_distinct_forwarded_ips_get_separate_rate_limit_buckets(monkeypatch):
+    # THE regression this exists to prevent: one visitor exhausting the limit
+    # must not lock out a different visitor arriving through the same proxy.
+    monkeypatch.setenv("NLSB_RATE_LIMIT_ENABLED", "true")
+    monkeypatch.setenv("NLSB_TRUST_PROXY_HEADERS", "true")
+    monkeypatch.setenv("NLSB_RATE_LIMIT_LLM_PER_MIN", "2")
+    _override_llm([json.dumps(_SIMPLE_SPARSE_IR)])
+
+    visitor_a = {"X-Forwarded-For": "203.0.113.7, 100.64.0.2"}
+    visitor_b = {"X-Forwarded-For": "198.51.100.23, 100.64.0.2"}
+
+    assert _translate(headers=visitor_a).status_code == 200
+    assert _translate(headers=visitor_a).status_code == 200
+    assert _translate(headers=visitor_a).status_code == 429  # A is exhausted
+
+    # B shares the proxy but not the bucket.
+    assert _translate(headers=visitor_b).status_code == 200
+    assert _translate(headers=visitor_b).status_code == 200
+
+
+def test_distinct_forwarded_ips_share_one_bucket_when_trust_disabled(monkeypatch):
+    # The pre-fix behavior, pinned: with the gate off the header is ignored, so
+    # both "visitors" collapse into the single TestClient-peer bucket.
+    monkeypatch.setenv("NLSB_RATE_LIMIT_ENABLED", "true")
+    monkeypatch.setenv("NLSB_TRUST_PROXY_HEADERS", "false")
+    monkeypatch.setenv("NLSB_RATE_LIMIT_LLM_PER_MIN", "2")
+    _override_llm([json.dumps(_SIMPLE_SPARSE_IR)])
+
+    assert _translate(headers={"X-Forwarded-For": "203.0.113.7"}).status_code == 200
+    assert _translate(headers={"X-Forwarded-For": "198.51.100.23"}).status_code == 200
+    assert _translate(headers={"X-Forwarded-For": "192.0.2.44"}).status_code == 429
 
 
 # --- TASK 2: daily spend circuit breaker ------------------------------------

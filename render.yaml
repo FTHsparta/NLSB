@@ -16,6 +16,11 @@ services:
     envVars:
       - key: PYTHON_VERSION
         value: 3.14.2
+      - key: NLSB_TRUST_PROXY_HEADERS
+        # Render fronts the service with its own proxy, so the TCP peer is the
+        # proxy for every visitor; key the per-IP limiter on X-Forwarded-For[0]
+        # instead. Set the same var on Railway (dashboard) — see DEPLOY.md.
+        value: "true"
       - key: ANTHROPIC_API_KEY
         sync: false # secret — set in the Render dashboard, never committed
       - key: ALLOWED_ORIGINS

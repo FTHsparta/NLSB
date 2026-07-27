@@ -1294,3 +1294,60 @@ looks it up, the real thing comes back.
 
 Next: [icon set, link-preview verification, on-device runthrough, and
 the confirm wall-clock — still unmeasured].
+
+## 2026-07-27 — The rate limiter was counting the proxy, not the visitor
+
+**Lesson — a fail-safe bug is still a bug, and it hides in the direction
+you don't test.** The per-IP limiter has been keying on
+`request.client.host` since Phase 8A, which is correct on localhost and
+wrong the moment anything sits in front of the process. Behind Railway's
+edge proxy that address is the *proxy* for every visitor, so all traffic
+landed in one bucket: ten translates a minute for the entire internet,
+with real users blocking each other. It never showed up in testing
+because the failure is over-protection — nothing errors, nothing gets
+overspent, the graph just looks quiet. The class of bug worth watching
+for is the one whose symptom is "fewer requests than expected."
+
+Worth being precise about why uvicorn didn't already handle this.
+`ProxyHeadersMiddleware` ships enabled, but `--forwarded-allow-ips`
+defaults to `127.0.0.1`, and Railway's proxy connects from `100.0.0.0/8`
+— so the middleware saw an untrusted peer and correctly left `scope`
+alone. Enabled but not trusting is indistinguishable from off unless you
+read the trust list. "The framework handles it" is a claim to verify,
+not inherit.
+
+The fix is a `client_identity` key function that takes the leftmost
+`X-Forwarded-For` entry, gated behind `NLSB_TRUST_PROXY_HEADERS`
+(default off) so local dev is byte-identical and the header is only
+believed where a known proxy actually sets it. The gate is the whole
+design: an unconditional trust of that header on a directly-reachable
+process hands every client a free bucket-rotation knob.
+
+Two calls that came out of reading the platform docs rather than
+guessing. `X-Real-IP` was on the table as a secondary source and is
+*not* in the code — Railway currently sets it to the CDN edge IP when
+traffic routes through the CDN, so it would have quietly rebuilt the
+exact shared-bucket bug the change exists to kill. And leftmost vs
+rightmost XFF has Railway's own forums arguing both sides; leftmost is
+their current recommendation and is stable across hop-count changes,
+rightmost is spoof-proof but breaks when the topology moves. Took
+leftmost, wrote the tradeoff into the docstring: a determined attacker
+can rotate that header, and that's accepted, because the per-IP limit
+was never the thing protecting spend. The global daily circuit breaker
+is, and it counts every request regardless of who claims to send it.
+Per-IP exists to stop accidents and casual overuse, and it still does.
+
+The test that justifies the whole change: two requests with different
+`X-Forwarded-For` values, one exhausting its limit, the other still
+getting a 200. Its twin pins the old behavior with the gate off — both
+collapsing into one bucket — so the diff between them *is* the bug,
+asserted in both directions.
+
+Suite: backend 250 → 263 (+13: 11 key-function unit cases, 2 bucket-
+isolation integration tests), every prior test unchanged, all green. No
+new dependencies, no frontend diff. `NLSB_TRUST_PROXY_HEADERS=true` is
+committed in `render.yaml` and documented in DEPLOY.md — on Railway it
+has to be set in the dashboard, and until it is, the fix is inert.
+
+Next: set the var on Railway and confirm two devices get separate
+buckets in production — then the launch post.

@@ -26,6 +26,7 @@ CORS involved.
 | `ALLOWED_ORIGINS` | `http://localhost:3000, http://127.0.0.1:3000` | Comma-separated CORS allowlist. Set to the deployed frontend origin(s). A literal `*` is ignored (never honored). | Backend |
 | `PORT` | *(platform-injected)* | Port uvicorn binds to in production. | Backend — set automatically by Render/Railway |
 | `NLSB_RATE_LIMIT_ENABLED` | `true` | Master switch for per-IP rate limiting (Phase 8A). | Backend (leave default in prod) |
+| `NLSB_TRUST_PROXY_HEADERS` | `false` | Key the per-IP limiter on the leftmost `X-Forwarded-For` entry instead of the TCP peer. **Set to `true` on Render/Railway** — behind their edge proxy the peer is the proxy for every visitor, so leaving it off puts all traffic in one bucket. Leave `false` anywhere the process is directly reachable (the header is client-spoofable). | Backend (prod: `true`) |
 | `NLSB_RATE_LIMIT_LLM_PER_MIN` | `10` | Shared per-IP per-minute budget for `/translate` + `/correct`. | Backend (optional) |
 | `NLSB_RATE_LIMIT_LLM_PER_DAY` | `60` | Shared per-IP daily budget for `/translate` + `/correct`. | Backend (optional) |
 | `NLSB_RATE_LIMIT_CONFIRM_PER_MIN` | `20` | Per-IP per-minute limit on `/confirm`. | Backend (optional) |
