@@ -31,6 +31,43 @@ logger = logging.getLogger(__name__)
 DEFAULT_MODEL = "claude-sonnet-4-6"
 MAX_RETRIES = 3
 
+# Bump when `_SYSTEM_PROMPT` or the IR schema changes in a way that could make
+# a previously-cached translation wrong. The translation cache mixes this into
+# every key, so bumping it retires every existing entry at once. Forgetting to
+# bump is survivable but not free: a stale entry that no longer validates is
+# caught and evicted by the validator on read (see `app.translation.cache`),
+# while a stale entry that still validates would be served until it ages out.
+PROMPT_SCHEMA_VERSION = 1
+
+
+def active_model_name() -> str:
+    """The model a default client would use right now. Read at call time so a
+    restart with a different ANTHROPIC_MODEL takes effect -- and so the
+    translation cache keys on the model that actually produced the entry."""
+    return os.environ.get("ANTHROPIC_MODEL", DEFAULT_MODEL)
+
+
+def anthropic_max_retries() -> int:
+    """Retries INSIDE the SDK, default 0.
+
+    The SDK ships with `max_retries=2`, which silently multiplied this
+    module's own `MAX_RETRIES = 3` loop: one request the spend breaker counted
+    as one unit could issue up to 9 billable calls. Pinning this to 0 makes the
+    application loop the only retry layer, so the counted unit and the billed
+    unit differ by a factor we actually chose.
+    """
+    return int(os.environ.get("NLSB_ANTHROPIC_MAX_RETRIES", "0"))
+
+
+def anthropic_timeout_seconds() -> float:
+    """Per-call timeout, default 60s (the SDK's own default is 600s).
+
+    Route handlers are sync `def` and run in anyio's bounded thread pool, so a
+    call that hangs holds a worker slot for its whole duration. At the SDK
+    default, three application retries could pin one slot for ~30 minutes."""
+    return float(os.environ.get("NLSB_ANTHROPIC_TIMEOUT_SECONDS", "60"))
+
+
 _SYSTEM_PROMPT = """You translate a natural-language trading strategy description into a JSON \
 intermediate representation (IR). You output JSON ONLY — no prose, no markdown code fences, \
 no explanation before or after. Your entire response must be a single JSON object.
@@ -90,14 +127,22 @@ class AnthropicLLMClient:
 
     def __init__(self, api_key: str | None = None, model: str | None = None) -> None:
         self._api_key = api_key or os.environ.get("ANTHROPIC_API_KEY")
-        self._model = model or os.environ.get("ANTHROPIC_MODEL", DEFAULT_MODEL)
+        self._model = model or active_model_name()
         self._client = None
 
     def _get_client(self):
         if self._client is None:
             import anthropic
 
-            self._client = anthropic.Anthropic(api_key=self._api_key)
+            # Both bounds are explicit ON PURPOSE: the SDK's defaults
+            # (max_retries=2, timeout=600s) sit UNDER this module's retry loop,
+            # so leaving them implicit makes the real cost and the real
+            # wall-clock a multiple of what the config appears to say.
+            self._client = anthropic.Anthropic(
+                api_key=self._api_key,
+                max_retries=anthropic_max_retries(),
+                timeout=anthropic_timeout_seconds(),
+            )
         return self._client
 
     def complete(self, *, system: str, user: str) -> str:

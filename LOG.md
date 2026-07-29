@@ -1351,3 +1351,87 @@ has to be set in the dashboard, and until it is, the fix is inert.
 
 Next: set the var on Railway and confirm two devices get separate
 buckets in production — then the launch post.
+
+## 2026-07-28 — Phase 12A: the LLM cost boundary, and what was under it
+
+**Lesson — a spend cap is only as honest as the layers beneath it.** The
+daily circuit breaker counted one thing and LOG.md described it as
+another. It counts *requests allowed to call the model*; the translator
+retries up to three times per request; and the Anthropic client was
+constructed bare, inheriting the SDK's own `max_retries=2`. Three
+application retries sitting on two SDK retries meant one counted unit was
+up to nine billable calls — a cap of 200 was a cap of up to 1800. The
+same bareness inherited a 600-second timeout, so a single counted request
+could hold one of the forty threadpool slots for half an hour. Neither
+number was wrong in the code; both were invisible, because nothing in the
+suite ever asserted what the layer underneath was doing. The fix is
+small — pass `max_retries` and `timeout` explicitly, default 0 and 60s —
+and the point is that the config now means what it says.
+
+The breaker had a second gap, structural rather than arithmetic. It
+exposed `check()` and `record()` as separate calls with real work between
+them, and route handlers are sync `def`, so FastAPI runs them in anyio's
+forty-thread pool. Every thread could pass the cap check before any of
+them incremented, and `self._count += 1` is not atomic either. That is
+now one locked `reserve()`.
+
+Writing the test for it produced the more uncomfortable finding. The
+first version — sixteen threads on a barrier, all racing a cap of one —
+passed. It also passed against a faithful reimplementation of the OLD
+check/record pair: zero of ten runs overshot. At CPython's default 5ms
+switch interval the window between the two calls is a few microseconds,
+so a thread is essentially never preempted inside it. Dropping the switch
+interval to 1e-6 flipped it to ten of ten, overshooting the cap by four
+to sixteen times. A concurrency test that passes against the broken
+implementation is not a test, and the only way to know which kind you
+have written is to go build the broken thing and run it. Production hits
+that window not because it is wide but because it runs it thousands of
+times.
+
+The cache is the cheap half: identical normalized input, same model, same
+prompt/schema version, bounded LRU, and a hit skips the model entirely.
+The four landing-page example chips are fixed strings that were being
+re-translated from scratch on every submit. Three rules keep it from
+being a liability rather than a saving. Only the fully-validated success
+path is stored — never a failure, never an "unsupported" verdict. A hit
+re-runs the schema validator and evicts anything that no longer passes,
+because a cached IR is exactly as untrusted as a fresh one; the cache is
+a cost optimization and never a trust boundary. And the size is bounded
+on purpose: an unbounded map keyed on arbitrary user text is a
+memory-exhaustion primitive. A hit costs no daily budget, because no API
+call happened — but it is still rate-limited, still cannot reach a
+backtest without an explicit /confirm, and the security boundary is
+unchanged: the model emits only validated IR JSON, and nothing
+model-emitted is ever executed.
+
+Gate order moved as a consequence. Budget used to be read before the
+size cap and incremented after it; now that claiming is atomic, it has to
+come last, or a request that was always going to be rejected consumes a
+unit it can never spend. Rate limiter, then size cap, then budget —
+reserved at the instant the model is about to be called.
+
+Then the suite found something none of this was looking for. The new
+tests passed alone and failed fourteen ways in the full run.
+`test_docs_exposure.py` rebuilds `app.main` with `importlib.reload` to
+check the production docs switch, which replaces the dependency
+*functions*; any test file sorting after it alphabetically overrides a
+key the live app's routes no longer reference. The override is ignored in
+silence — and because `backend/.env` holds a working API key that
+`load_dotenv()` picks up at import, the fallthrough is not an error. It
+is a real call to the real Anthropic API, returning a real 200. The suite
+was quietly spending money, and the only reason the older abuse tests
+never caught it is that "abuse" sorts before "docs". The same reload also
+re-registers the shared rate-limit decorator, so one request consumes
+(reloads + 1) units of its per-minute budget: measured at a limit of six,
+six requests get through with no reloads, three after one, two after two.
+Both are test-infrastructure debt, both are reported rather than
+quietly patched. What did change: a conftest guard that makes reaching
+the real client an immediate, loud assertion failure instead of an
+invoice.
+
+Suite: backend 263 → 287 (+24), frontend 147 unchanged, all green;
+tsc, eslint, next build clean. No frontend diff, no new dependencies.
+
+Next: measure /confirm's wall-clock, then the concurrency limit and
+request timeout that the audit flagged — the spend boundary is honest
+now, the compute boundary still isn't.

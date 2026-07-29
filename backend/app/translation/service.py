@@ -8,16 +8,28 @@ against the schema defensively before handing it to the safe interpreter.
 
 from __future__ import annotations
 
+import logging
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
+import jsonschema
 import pandas as pd
 
 from app.engine.backtest import BacktestResult, run_ir_backtest
 from app.robustness.robustness import run_robustness
+from app.translation.cache import cache_key, translation_cache
 from app.translation.defaults import Assumption
 from app.translation.interpreter import IRInterpreterError, compute_ir_warmup, validate_ir
 from app.translation.renderer import render_confirmation
-from app.translation.translator import AnthropicLLMClient, LLMClient, translate_to_ir
+from app.translation.translator import (
+    PROMPT_SCHEMA_VERSION,
+    AnthropicLLMClient,
+    LLMClient,
+    active_model_name,
+    translate_to_ir,
+)
+
+logger = logging.getLogger(__name__)
 
 # Robinhood-tier retail cost model (matches Phase 1's `phase1_slice.py`):
 # ~0 commission, but slippage/spread is real.
@@ -99,8 +111,53 @@ def _default_llm_client() -> LLMClient:
     return AnthropicLLMClient()
 
 
-def translate(nl_text: str, llm_client: LLMClient | None = None) -> TranslationResponse:
-    """NL -> (IR, assumptions, restatement). Never runs a backtest."""
+def _cache_key_for(nl_text: str) -> str:
+    return cache_key(nl_text, model=active_model_name(), version=PROMPT_SCHEMA_VERSION)
+
+
+def _cached_translation(nl_text: str) -> TranslationResponse | None:
+    """A previously-validated response for this exact request, or None.
+
+    The cache is a cost optimization, NEVER a trust boundary: the stored IR
+    goes back through the same schema validator a fresh translation does. An
+    entry that no longer validates (a schema change, a version bump that was
+    forgotten) is evicted and the caller translates fresh rather than being
+    served something that would fail later at /confirm.
+    """
+    key = _cache_key_for(nl_text)
+    cached = translation_cache.get(key)
+    if cached is None:
+        return None
+    try:
+        validate_ir(cached.ir)
+    except (jsonschema.ValidationError, IRInterpreterError, TypeError):
+        logger.warning("evicting cached translation that no longer validates")
+        translation_cache.evict(key)
+        return None
+    return cached
+
+
+def translate(
+    nl_text: str,
+    llm_client: LLMClient | None = None,
+    *,
+    before_llm: Callable[[], None] | None = None,
+) -> TranslationResponse:
+    """NL -> (IR, assumptions, restatement). Never runs a backtest.
+
+    `before_llm` is the spend gate: it runs if and only if this call is about
+    to invoke the model, so a cache hit costs no daily budget (no API call
+    happened). It raises to refuse -- the HTTP layer passes
+    `abuse.enforce_spend_budget`, whose 503 propagates untouched.
+    """
+    cached = _cached_translation(nl_text)
+    if cached is not None:
+        logger.info("translate: cache hit, skipping the model")
+        return cached
+
+    if before_llm is not None:
+        before_llm()
+
     client = llm_client or _default_llm_client()
     result = translate_to_ir(nl_text, client)
 
@@ -125,13 +182,21 @@ def translate(nl_text: str, llm_client: LLMClient | None = None) -> TranslationR
         )
 
     restatement = render_confirmation(result.full_ir, result.assumptions)
-    return TranslationResponse(
+    response = TranslationResponse(
         status="ok",
         ir=result.full_ir,
         assumptions=result.assumptions,
         restatement=restatement,
         retries=len(result.attempts) - 1,
     )
+    # ONLY the fully-validated success path is cached: never a failure, never
+    # an "unsupported" verdict, never a partial result. The whole response is
+    # stored (IR + assumptions + restatement) so a hit is byte-identical at
+    # the API boundary -- the gate's stated-vs-assumed display reads the
+    # assumptions list, and a hit that dropped it would silently change what
+    # the user is asked to confirm.
+    translation_cache.put(_cache_key_for(nl_text), response)
+    return response
 
 
 def correct(
@@ -139,6 +204,8 @@ def correct(
     prior_ir: dict,
     correction_text: str,
     llm_client: LLMClient | None = None,
+    *,
+    before_llm: Callable[[], None] | None = None,
 ) -> TranslationResponse:
     """Re-translate with a free-text correction layered onto the original request.
 
@@ -153,7 +220,9 @@ def correct(
         "Produce a corrected sparse IR for the ORIGINAL request, taking the "
         "correction into account."
     )
-    return translate(combined_nl, llm_client)
+    # Caching and the spend gate both ride on the combined text, so a repeated
+    # identical correction is as free as a repeated identical translation.
+    return translate(combined_nl, llm_client, before_llm=before_llm)
 
 
 def confirm(

@@ -21,6 +21,7 @@ import logging
 import math
 import os
 import re
+import threading
 from datetime import datetime, timezone
 
 from fastapi import HTTPException, Request
@@ -139,50 +140,78 @@ class SpendBreaker:
     shared across workers and resets on restart. Each counted request may make
     up to `MAX_RETRIES` underlying model calls; this counts *requests that are
     allowed to call the model*, reserved before the client is invoked.
+
+    Check-and-increment is ONE locked operation (`reserve`). It used to be two
+    calls -- a non-mutating `check()` and a later `record()` -- which is a
+    check-then-act race: route handlers are sync `def`, so FastAPI runs them
+    in anyio's 40-thread pool, and every thread could pass `check()` at the
+    cap before any of them reached `record()`. `self._count += 1` is not
+    atomic either. Under concurrency that let the cap overshoot by roughly the
+    number of in-flight requests.
     """
 
     def __init__(self) -> None:
         self._day: object = None
         self._count = 0
+        self._lock = threading.Lock()
 
     @staticmethod
     def _cap() -> int:
         return int(os.environ.get("NLSB_LLM_DAILY_CAP", "200"))
 
     def _roll_day(self) -> None:
+        """Caller must hold `_lock`."""
         today = datetime.now(timezone.utc).date()
         if today != self._day:
             self._day = today
             self._count = 0
 
-    def check(self) -> None:
-        """Raise 503 if today's cap is already reached. Does NOT mutate the
-        counter -- call `record()` once the request has cleared the other
-        gates and is about to spend."""
-        self._roll_day()
-        if self._count >= self._cap():
-            logger.warning("daily LLM spend cap reached (%d); short-circuiting", self._cap())
-            raise HTTPException(
-                status_code=503,
-                detail="The service has hit its daily usage limit — try again tomorrow.",
-            )
+    def reserve(self) -> bool:
+        """Claim one unit of today's budget. True if the caller may spend.
 
-    def record(self) -> None:
-        self._roll_day()
-        self._count += 1
+        Atomic: the rollover, the cap comparison, and the increment all happen
+        under one lock, so exactly `cap` callers can win per UTC day no matter
+        how many threads race. Budget is consumed at reserve time and is never
+        refunded -- a translate that fails downstream may still have cost real
+        API calls, so an unspent reservation is the safe way to be wrong.
+        """
+        with self._lock:
+            self._roll_day()
+            if self._count >= self._cap():
+                logger.warning("daily LLM spend cap reached (%d); short-circuiting", self._cap())
+                return False
+            self._count += 1
+            return True
 
     def reset(self) -> None:
         """For tests only: clear the process-global counter between cases."""
-        self._day = None
-        self._count = 0
+        with self._lock:
+            self._day = None
+            self._count = 0
 
     @property
     def count(self) -> int:
-        self._roll_day()
-        return self._count
+        with self._lock:
+            self._roll_day()
+            return self._count
 
 
 spend_breaker = SpendBreaker()
+
+
+def enforce_spend_budget() -> None:
+    """Reserve one unit of daily budget or raise the 503 the frontend maps.
+
+    Call this immediately before the model is invoked and AFTER every cheap
+    validation, so a request that was going to be rejected anyway never burns
+    budget. The status and detail string are load-bearing -- the frontend
+    already renders this exact shape.
+    """
+    if not spend_breaker.reserve():
+        raise HTTPException(
+            status_code=503,
+            detail="The service has hit its daily usage limit — try again tomorrow.",
+        )
 
 
 # --- Input caps & validation ------------------------------------------------

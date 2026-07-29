@@ -8,11 +8,17 @@ happens. This module composes existing service/robustness functions -- it
 does not reimplement translation, defaulting, rendering, or backtest logic.
 
 Public-exposure hardening (Phase 8A) lives in `app.abuse`: every LLM-calling
-route passes the per-IP rate limiter, the daily spend breaker, and the input
-size cap -- in that order -- before the Anthropic client is reachable, and
+route passes the per-IP rate limiter, the input size cap, and the daily spend
+budget -- in that order -- before the Anthropic client is reachable, and
 every external-call failure is mapped to a plain-English error with no stack
 trace crossing the boundary. None of it changes the security boundary: the
 LLM still emits only validated IR JSON and no model-emitted code is executed.
+
+Phase 12A moved the spend budget to the END of that order and made claiming
+it atomic. It is now reserved at the instant the model is about to be called,
+so a request rejected for size never consumes a unit, and a translation
+served from cache consumes none either -- while a cache hit still passes the
+rate limiter and still re-validates its IR. Cached IR is not trusted IR.
 """
 
 from __future__ import annotations
@@ -39,11 +45,11 @@ from app.abuse import (
     body_length_exceeds_cap,
     confirm_rate_limit,
     enforce_ir_complexity,
+    enforce_spend_budget,
     enforce_text_size,
     enforce_ticker,
     limiter,
     llm_rate_limit,
-    spend_breaker,
 )
 from app.data.market_data import InsufficientDataError, fetch_daily_bars
 from app.translation import service
@@ -257,11 +263,20 @@ def translate_route(
     req: TranslateRequest,
     llm_client: LLMClient | None = Depends(get_llm_client),
 ) -> TranslationPayload:
-    # Gate order (INV-1): rate limiter (decorator) -> spend breaker -> size cap.
-    spend_breaker.check()
+    # Gate order (INV-1): rate limiter (decorator) -> size cap -> spend budget.
+    # The size cap moved AHEAD of the budget deliberately: budget is now
+    # reserved (not just read) at the moment it is claimed, so a request that
+    # was always going to be rejected must be rejected first or it consumes a
+    # unit it can never use. `before_llm` reserves inside the service, after
+    # the translation cache is consulted -- a cache hit calls no model and so
+    # costs no budget.
     enforce_text_size(req.nl_text)
-    spend_breaker.record()
-    result = _run_llm("translate", lambda: service.translate(req.nl_text, llm_client=llm_client))
+    result = _run_llm(
+        "translate",
+        lambda: service.translate(
+            req.nl_text, llm_client=llm_client, before_llm=enforce_spend_budget
+        ),
+    )
     return TranslationPayload.from_response(result)
 
 
@@ -278,12 +293,16 @@ def correct_route(
     req: CorrectRequest,
     llm_client: LLMClient | None = Depends(get_llm_client),
 ) -> TranslationPayload:
-    spend_breaker.check()
     enforce_text_size(req.original_nl, req.correction_text)
-    spend_breaker.record()
     result = _run_llm(
         "correct",
-        lambda: service.correct(req.original_nl, req.prior_ir, req.correction_text, llm_client=llm_client),
+        lambda: service.correct(
+            req.original_nl,
+            req.prior_ir,
+            req.correction_text,
+            llm_client=llm_client,
+            before_llm=enforce_spend_budget,
+        ),
     )
     return TranslationPayload.from_response(result)
 
