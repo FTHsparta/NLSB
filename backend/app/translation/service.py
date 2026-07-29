@@ -41,8 +41,26 @@ RETAIL_SLIPPAGE = 0.0005
 # larger than the number of bars, or a date range shorter than the warmup --
 # the effective window is empty and the downstream stats raise deep in the
 # engine. Guard for it explicitly so it surfaces as a clean, named error
-# instead of an uncaught 500. Two bars is the floor any return/stat needs.
-MIN_EFFECTIVE_BARS = 2
+# instead of an uncaught 500.
+#
+# Five, not a round number, and not "enough to be confident". This is the
+# floor below which the metrics are MEANINGLESS, which is a different and much
+# lower bar than the floor below which they are merely uncertain -- thin data
+# already has a designed answer in the UNTESTABLE / thin-evidence verdict
+# path, and walk-forward's 756/252/252 windows degrade into it on their own.
+#
+# N effective bars yield N-1 daily returns, and the deflated Sharpe corrects
+# the Sharpe ratio using the sample skew and kurtosis of those returns.
+# Measured on this codebase's own helpers over 400 random samples each:
+#   2 returns -> skew is ALWAYS exactly 0.000, kurtosis ALWAYS exactly 1.000
+#   3 returns -> skew varies, kurtosis is ALWAYS exactly 1.500
+#   4 returns -> both finally vary with the data
+# At 3 or fewer returns the PSR denominator's `((kurt - 1) / 4)` fat-tail term
+# is a constant determined by the sample SIZE, not by the returns -- the
+# deflated Sharpe still produces a confident-looking number that structurally
+# cannot reflect the distribution it claims to be correcting for. Four returns
+# is the first point at which it measures anything, so five bars is the floor.
+MIN_EFFECTIVE_BARS = 5
 
 
 def _require_runnable_window(ir: dict, price_data: pd.DataFrame) -> None:
@@ -245,6 +263,8 @@ def confirm_robustness(
     *,
     fees: float = RETAIL_FEES,
     slippage: float = RETAIL_SLIPPAGE,
+    requested_start: object = None,
+    requested_end: object = None,
 ) -> dict:
     """Run the full robustness suite for a user-confirmed IR (or the no-exit
     short-circuit) and return the `RESULT_KEYS` dict. Like `confirm()`, this
@@ -259,4 +279,14 @@ def confirm_robustness(
     validate_ir(ir)
     _reject_unsimulated_risk(ir)
     _require_runnable_window(ir, price_data)
-    return run_robustness(ir, price_data, assumptions, fees=fees, slippage=slippage)
+    # The requested dates travel with the run so the result can state BOTH
+    # what was asked for and what was judged, side by side.
+    return run_robustness(
+        ir,
+        price_data,
+        assumptions,
+        fees=fees,
+        slippage=slippage,
+        requested_start=requested_start,
+        requested_end=requested_end,
+    )

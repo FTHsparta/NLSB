@@ -1435,3 +1435,93 @@ tsc, eslint, next build clean. No frontend diff, no new dependencies.
 Next: measure /confirm's wall-clock, then the concurrency limit and
 request timeout that the audit flagged — the spend boundary is honest
 now, the compute boundary still isn't.
+
+## 2026-07-28 — Phase 12B: four guards, all passing, and the answer still wrong
+
+**Lesson — every check asked the data whether it was self-consistent, and
+none asked whether it was what had been requested.** The price path had
+four guards: reject an empty frame, reject fewer than 252 bars, reject an
+internal gap over ten days, reject a window the indicator warmup would
+consume. Each is a real check and each one passes on a clean, gapless,
+1500-bar frame covering 2015-2020 — including when the user asked for
+2015-2026. Nothing anywhere compared the returned index against the range
+that was requested. Six years of history answered an eleven-year question,
+silently, and the result had no field capable of mentioning it. Four
+guards is not defense in depth if all four are looking the same direction.
+
+The two halves of the fix are separable and both matter. The coverage
+guard compares realized against requested and refuses outside a tolerance
+— seven days at each end, absorbing a start date that lands on a weekend
+and vendor lag on the trailing edge. It refuses rather than clamps, and
+that is the deliberate part: a ticker that did not exist yet is not a bug,
+but quietly narrowing the window to whatever happened to exist is exactly
+the failure being removed, so the message names both windows and the user
+re-asks with real dates.
+
+The other half is that every result now carries the window it ran on —
+realized first bar, realized last bar, bar count, and the requested dates
+beside them — unconditionally, on every path including no-exit and
+untestable. Not as a diagnostic that appears when something looks wrong.
+A correct run reports its window too, because a reader should not have to
+already suspect a problem before being told which data produced the
+answer. A product whose whole claim is honesty about what the numbers
+support cannot have results that are structurally unable to say what they
+were computed from.
+
+The effective-bar floor moved from 2 to 5, and the number was measured
+rather than chosen. N bars give N-1 daily returns, and the deflated Sharpe
+corrects for the skew and kurtosis of those returns. Over 400 random
+samples at each size: at 2 returns the sample skew is always exactly 0.000
+and the kurtosis always exactly 1.000; at 3 returns the skew finally
+varies but the kurtosis is always exactly 1.500; at 4 both move with the
+data. Below four returns the fat-tail term in the PSR denominator is a
+constant of the sample SIZE, so the deflated Sharpe was returning a
+confident number that structurally could not reflect the distribution it
+claimed to be correcting. That is the floor below which results are
+meaningless — a different and far lower bar than the floor below which
+they are uncertain, which already has a designed answer in the UNTESTABLE
+verdict and was deliberately left alone.
+
+The fetch is now bounded in all three directions it wasn't: an explicit
+30s timeout (yfinance 1.4.1's download() takes one directly, so no wrapper
+layer was needed), at most two retries after the first attempt with
+exponential backoff, and a bounded LRU of validated frames. Worst-case
+wall time is 3 x 30s plus 1.5s of backoff — 91.5 seconds, stated because
+an unstated bound is not a bound. Transport failures are retried; a frame
+that failed a validation guard is not, since re-asking only delays a 422
+the caller can act on. Nothing that failed any guard is ever cached, and
+the realized window is a pure function of the returned index, which is
+what makes a cache hit report coverage identically to a fresh fetch by
+construction rather than by bookkeeping.
+
+Security boundary unchanged: the LLM emits only validated IR JSON and no
+model-emitted code is ever executed. Cached price data is data, never
+judgment — it is returned as a copy, and it re-enters the same validators.
+
+The fixture regeneration was the pleasant surprise. Adding a key to a
+pinned schema was expected to churn the frontend's fixture tests; the
+diff came to 57 insertions and one deletion, that deletion being a comma,
+and all 147 existing frontend tests passed untouched. The reason is that
+those tests assert on named fields rather than whole-object equality —
+a property worth noticing, because it is what made a schema addition
+cheap. The dumper now fills the requested dates from the synthetic
+series' own bounds, so the fixtures model what /confirm actually returns
+instead of leaving those fields null.
+
+Recording a measurement that was taken and never written down: production
+/confirm wall-clock is under 15 seconds, single user, no contention,
+measured by hand on the phone pass at the domain cutover. The audit was
+right to flag its absence as the largest open unknown — a number that
+exists only in someone's memory is not a number the project has.
+
+Suite: backend 287 -> 321 (+34), frontend 147 -> 158 (+11), all green;
+tsc, eslint, next build clean. One existing test changed meaning and is
+called out rather than quietly edited: the hardcoded key set in
+test_api_routes.py gained "window". It stays a literal set on purpose —
+it is the only place the frontend's key names are spelled out
+independently of RESULT_KEYS, so a rename fails there instead of renaming
+both sides at once.
+
+Next: the compute boundary — /confirm still has no concurrency limit and
+no request timeout, and one uvicorn process with a 40-thread pool is the
+whole capacity story.

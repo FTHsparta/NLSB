@@ -14,6 +14,7 @@ from __future__ import annotations
 import pytest
 
 from app import abuse
+from app.data.market_data import price_cache
 from app.translation import service
 from app.translation.cache import translation_cache
 
@@ -60,12 +61,17 @@ def _isolate_abuse_protection(monkeypatch):
     # is ON in production would otherwise make one test's translation answer
     # another test's identical request. Cache tests opt back in via setenv.
     monkeypatch.setenv("NLSB_TRANSLATION_CACHE_ENABLED", "false")
+    # Phase 12B: same reasoning for the price cache -- one test's patched
+    # yf.download must never answer another test's fetch. Cache tests opt in.
+    monkeypatch.setenv("NLSB_PRICE_CACHE_ENABLED", "false")
 
     # Clear process-global counters so no test inherits another's usage.
     abuse.spend_breaker.reset()
     abuse.reset_rate_limiter()
     translation_cache.clear()
+    price_cache.clear()
     yield
     abuse.spend_breaker.reset()
     abuse.reset_rate_limiter()
     translation_cache.clear()
+    price_cache.clear()

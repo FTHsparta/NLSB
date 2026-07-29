@@ -105,6 +105,19 @@ export interface NoExitResult {
   benchmark_metrics: BacktestMetrics | null;
 }
 
+/**
+ * The window a backtest actually ran on, reported on EVERY result including
+ * no-exit and untestable. `requested_end` is legitimately null — "from this
+ * date onward" is a normal request — so callers must handle it.
+ */
+export interface RealizedWindow {
+  realized_start: string | null;
+  realized_end: string | null;
+  bar_count: number;
+  requested_start: string | null;
+  requested_end: string | null;
+}
+
 /** The exact dict `run_robustness` returns, kind-discriminated. */
 export type RobustnessResult =
   | {
@@ -115,6 +128,7 @@ export type RobustnessResult =
       deflated_sharpe: null;
       regime: null;
       verdict: null;
+      window: RealizedWindow;
     }
   | {
       kind: "full";
@@ -124,4 +138,5 @@ export type RobustnessResult =
       deflated_sharpe: DeflatedSharpeResult;
       regime: RegimeReport;
       verdict: VerdictResult;
+      window: RealizedWindow;
     };

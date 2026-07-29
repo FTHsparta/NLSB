@@ -19,6 +19,7 @@ import dataclasses
 
 import pandas as pd
 
+from app.data.market_data import realized_window
 from app.engine.backtest import run_ir_backtest_returns
 from app.robustness.deflated_sharpe import deflated_sharpe_ratio_from_trials
 from app.robustness.regime import run_regime_analysis
@@ -39,7 +40,22 @@ RETAIL_SLIPPAGE = 0.0005
 # Stable top-level keys of the dict `run_robustness` returns -- pinned in
 # `test_robustness.py::test_result_schema_keys_are_stable` so a future
 # refactor can't silently rename/drop a key the frontend depends on.
-RESULT_KEYS = ("kind", "no_exit", "sensitivity", "walk_forward", "deflated_sharpe", "regime", "verdict")
+#
+# `window` (Phase 12B) is present on EVERY result, unconditionally, including
+# the no-exit and untestable paths. It is not a diagnostic that appears when
+# something is wrong: a correct run reports the window it judged too, because
+# a reader should not have to suspect a problem before being told which data
+# produced the answer. One nested key keeps the top level flat.
+RESULT_KEYS = (
+    "kind",
+    "no_exit",
+    "sensitivity",
+    "walk_forward",
+    "deflated_sharpe",
+    "regime",
+    "verdict",
+    "window",
+)
 
 
 def run_robustness(
@@ -53,6 +69,8 @@ def run_robustness(
     out_of_sample_bars: int = DEFAULT_OUT_OF_SAMPLE_BARS,
     step_bars: int = DEFAULT_STEP_BARS,
     min_trades_for_confidence: int = DEFAULT_MIN_TRADES_FOR_CONFIDENCE,
+    requested_start: object = None,
+    requested_end: object = None,
 ) -> dict:
     """Run the full robustness suite, or the no-exit short-circuit.
 
@@ -60,7 +78,15 @@ def run_robustness(
     ``"no_exit"`` or ``"full"`` and determines which of the other keys are
     populated (the rest are ``None``) -- callers should branch on ``kind``,
     not on which keys happen to be non-None.
+
+    ``window`` is derived from `price_data`'s own index, so it describes the
+    data this call actually ran on and cannot drift from it. The requested
+    dates are optional and reported as None when a caller has none to give
+    (the fixture dumper, direct unit tests); the HTTP path always supplies
+    them.
     """
+    window = realized_window(price_data, requested_start, requested_end)
+
     if is_no_exit_strategy(assumptions):
         no_exit = build_no_exit_result(ir, price_data, fees=fees, slippage=slippage)
         return {
@@ -71,6 +97,7 @@ def run_robustness(
             "deflated_sharpe": None,
             "regime": None,
             "verdict": None,
+            "window": window,
         }
 
     sensitivity = run_sensitivity(ir, price_data, fees=fees, slippage=slippage)
@@ -105,4 +132,5 @@ def run_robustness(
         "deflated_sharpe": dsr,
         "regime": dataclasses.asdict(regime),
         "verdict": dataclasses.asdict(verdict),
+        "window": window,
     }

@@ -171,9 +171,26 @@ def test_confirm_route_is_the_only_path_to_a_robustness_result():
 
     assert resp.status_code == 200
     body = resp.json()
-    assert set(body.keys()) == {"kind", "no_exit", "sensitivity", "walk_forward", "deflated_sharpe", "regime", "verdict"}
+    # Deliberately a LITERAL set, not `RESULT_KEYS`: this is the only place the
+    # key names the frontend depends on are spelled out independently of the
+    # constant, so a rename in robustness.py fails here instead of quietly
+    # renaming both sides at once. "window" joined it in Phase 12B.
+    assert set(body.keys()) == {
+        "kind",
+        "no_exit",
+        "sensitivity",
+        "walk_forward",
+        "deflated_sharpe",
+        "regime",
+        "verdict",
+        "window",
+    }
     assert body["kind"] == "full"
     assert body["verdict"] is not None
+    # No backtest runs on a window it does not report.
+    assert body["window"]["bar_count"] > 0
+    assert body["window"]["realized_start"] and body["window"]["realized_end"]
+    assert body["window"]["requested_start"] == "2015-01-01"
 
 
 def test_confirm_route_no_exit_assumption_short_circuits_to_buy_and_hold():

@@ -28,8 +28,24 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from app.robustness.robustness import run_robustness
+from app.robustness.robustness import run_robustness as _run_robustness
 from app.translation.defaults import apply_defaults
+
+
+def run_robustness(ir, price_data, assumptions, **kwargs):
+    """`run_robustness` with the requested window filled in from the data.
+
+    Phase 12B: every result carries a `window` block reporting what was asked
+    for alongside what was judged. The HTTP path always supplies the requested
+    dates; a builder calling the orchestrator directly would leave them null,
+    which would make these fixtures unrepresentative of the payload the
+    frontend actually receives. Defaulting them to the synthetic series' own
+    bounds models the healthy case -- asked for exactly what existed -- while
+    keeping the fields non-null so the renderer's tests exercise real values.
+    """
+    kwargs.setdefault("requested_start", price_data.index.min())
+    kwargs.setdefault("requested_end", price_data.index.max())
+    return _run_robustness(ir, price_data, assumptions, **kwargs)
 
 FIXTURES_DIR = Path(__file__).resolve().parents[2] / "frontend" / "fixtures" / "robustness"
 

@@ -248,5 +248,12 @@
         "42% of gains are bull-dependent, 16% more than a buy-and-hold benchmark (provisional)"
       ]
     }
+  },
+  "window": {
+    "realized_start": "2010-01-01",
+    "realized_end": "2012-03-10",
+    "bar_count": 800,
+    "requested_start": "2010-01-01",
+    "requested_end": "2012-03-10"
   }
 }

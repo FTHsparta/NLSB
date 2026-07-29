@@ -186,5 +186,12 @@
         "70% of gains are bull-dependent, 20% more than a buy-and-hold benchmark"
       ]
     }
+  },
+  "window": {
+    "realized_start": "2010-01-01",
+    "realized_end": "2012-04-20",
+    "bar_count": 841,
+    "requested_start": "2010-01-01",
+    "requested_end": "2012-04-20"
   }
 }

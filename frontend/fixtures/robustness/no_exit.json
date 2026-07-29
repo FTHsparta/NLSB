@@ -28,5 +28,12 @@
   "walk_forward": null,
   "deflated_sharpe": null,
   "regime": null,
-  "verdict": null
+  "verdict": null,
+  "window": {
+    "realized_start": "2010-01-01",
+    "realized_end": "2010-07-19",
+    "bar_count": 200,
+    "requested_start": "2010-01-01",
+    "requested_end": "2010-07-19"
+  }
 }

@@ -350,6 +350,16 @@ def confirm_route(
 
     assumptions = [a.to_assumption() for a in req.assumptions]
     try:
-        return service.confirm_robustness(req.ir, price_data, assumptions)
+        # The requested dates go in so the result can come back stating the
+        # window it actually judged (INV: no backtest runs on a window it does
+        # not report). The fetch above has already refused anything that fell
+        # short of this range -- there is no path that narrows it silently.
+        return service.confirm_robustness(
+            req.ir,
+            price_data,
+            assumptions,
+            requested_start=req.start,
+            requested_end=req.end,
+        )
     except (IRInterpreterError, DefaultingError, jsonschema.ValidationError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

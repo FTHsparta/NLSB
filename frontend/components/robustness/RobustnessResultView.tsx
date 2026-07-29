@@ -6,6 +6,7 @@ import { MethodologyNote } from "@/components/chrome/MethodologyNote";
 import { MOTION, staggerDelay } from "@/lib/motion";
 import { BuyHoldComparison } from "./BuyHoldComparison";
 import { RobustnessPanel } from "./RobustnessPanel";
+import { TestedWindow } from "./TestedWindow";
 import { VerdictCard } from "./VerdictCard";
 
 export interface RobustnessResultViewProps {
@@ -92,6 +93,7 @@ export function RobustnessResultView({ result }: RobustnessResultViewProps) {
       <>
         <div className={MOTION.enterSlide} style={staggerDelay(0)}>
           <BuyHoldComparison noExit={result.no_exit} />
+          <TestedWindow window={result.window} />
         </div>
         <div className={MOTION.enterSlide} style={staggerDelay(1)}>
           <ResultsDisclaimer />
@@ -108,6 +110,11 @@ export function RobustnessResultView({ result }: RobustnessResultViewProps) {
     <div data-testid="robustness-result-view">
       <div className={MOTION.enterSlide} style={staggerDelay(0)}>
         <VerdictCard verdict={result.verdict.verdict} reasons={result.verdict.reasons} />
+        {/* Directly under the headline, and a SIBLING of VerdictCard so it
+            never inherits the verdict color scoping (INV-2). Constant classes
+            regardless of the values -- the window is information, not a
+            judgment channel. */}
+        <TestedWindow window={result.window} />
       </div>
       <div className={MOTION.enterSlide} style={staggerDelay(1)}>
         <RobustnessPanel

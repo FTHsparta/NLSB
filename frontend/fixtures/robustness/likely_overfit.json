@@ -259,5 +259,12 @@
       "fragile_params": [],
       "regime_flags": []
     }
+  },
+  "window": {
+    "realized_start": "2010-01-01",
+    "realized_end": "2011-03-26",
+    "bar_count": 450,
+    "requested_start": "2010-01-01",
+    "requested_end": "2011-03-26"
   }
 }
