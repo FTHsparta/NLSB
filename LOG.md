@@ -1596,3 +1596,69 @@ clean. No new dependencies.
 Next: the compute boundary — /confirm still has no concurrency limit and
 no request timeout, and one uvicorn process with a 40-thread pool is the
 whole capacity story.
+
+## 2026-08-02 — Phase 12E: counting on our own server
+
+**Lesson — the seam is what made a vendor's pricing decision cheap.**
+Phase 12D wired funnel events to Vercel's `track`, and Vercel turns out
+to gate custom-event *viewing* behind its Pro plan: the events were being
+emitted correctly and were unreadable on this plan. Because emission sat
+behind a seam rather than being called at seven call sites, the repair
+was one function body. The event vocabulary, the funnel points, the
+sanitizer, the inertness rules, and every test written against them are
+untouched. That is the entire argument for indirection at a boundary you
+do not control, and it is worth noticing that the argument only pays out
+when the thing on the far side changes for reasons that have nothing to
+do with your code.
+
+Server-side is also the better instrument here, independent of pricing.
+Readers of an algorithmic-trading report block client analytics at high
+rates, so a backend count is both more accurate and the only figure this
+project can defend as its own rather than quote from someone else's
+dashboard.
+
+**The second lesson is about what a public write endpoint actually is.**
+`POST /events` is unauthenticated by necessity — a beacon from a stranger's
+browser cannot carry a credential worth having — which means every field
+arriving is hostile input. The frontend has a sanitizer and it is a
+*convenience*: anyone can `curl` this endpoint and skip it entirely. The
+server's allowlist is the boundary. An unrecognized event name is refused
+rather than stored, so the table's contents are drawn from a fixed
+vocabulary this repo controls; properties are filtered by value shape, not
+by a blacklist of field names someone remembered. The two sanitizers are
+duplicated on purpose, because a shared one could only live on the client.
+
+The storage is deliberately unable to answer questions about individuals.
+A row is an event name, a UTC timestamp, and a small bag of bounded
+scalars — there is no IP column, no user agent, no session id, and a test
+pins the schema against that rather than merely checking one payload. The
+client IP buckets the rate limit and is discarded. This counts how many
+people confirmed the gate; it cannot say who.
+
+Two details that decided the design rather than decorated it. The body is
+sent and read as `text/plain`, which looks wrong until you remember that
+`gate_abandoned` fires while the page is unloading: `text/plain` is one of
+three CORS-simple content types, so the beacon skips a preflight it would
+not survive, where `application/json` would trigger one and drop precisely
+the event the abandonment case exists to capture. And the read routes fail
+closed — with `NLSB_EVENTS_TOKEN` unset both return 404, because an unset
+secret must never be read as "open to everyone", and a wrong token returns
+404 rather than 401 so probing reveals nothing about what exists.
+
+The failure mode worth naming in advance is the silent one. Railway
+containers have an ephemeral filesystem, so without a mounted volume the
+database is recreated on every deploy: the endpoints keep working, the
+numbers stay plausible, and "since launch" quietly becomes "since the last
+push". Nothing errors. DEPLOY.md now says so explicitly, including that
+NLSB_DATA_DIR must match the mount path exactly. When the directory is
+unwritable the store disables itself and logs loudly instead of taking the
+app down — losing counts is acceptable, losing /translate because a volume
+was not mounted is not.
+
+Suite: backend 321 -> 357 (+36), frontend 184 -> 194 (+10), all green;
+tsc, eslint, next build clean. No new dependencies. The frontend diff is
+one file plus its test, which was the point.
+
+Next: mount the volume and set the token on Railway — until both exist,
+this phase records nothing durable. Then the compute boundary: /confirm
+still has no concurrency limit and no request timeout.

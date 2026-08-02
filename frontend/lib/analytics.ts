@@ -1,4 +1,4 @@
-import { track } from "@vercel/analytics";
+import { apiUrl } from "@/lib/apiBase";
 
 /**
  * Funnel instrumentation.
@@ -7,6 +7,14 @@ import { track } from "@vercel/analytics";
  * Every other gap can be fixed after it is observed failing; a traffic event
  * that arrives un-instrumented is unmeasurable forever. That is the whole
  * reason this exists before it is obviously needed.
+ *
+ * The SINK is the backend's POST /events (Phase 12E). It was Vercel's
+ * `track`, which turned out to gate custom-event VIEWING behind the Pro plan
+ * -- events were being emitted that nobody on this plan could read. Because
+ * emission sits behind this seam, a vendor's pricing decision cost one
+ * function body rather than the instrumentation layer. Vercel Analytics and
+ * Speed Insights stay mounted: pageviews and Web Vitals still work and answer
+ * different questions.
  *
  * Three rules, all enforced below rather than left to call sites:
  *
@@ -93,6 +101,44 @@ function isProductionBrowser(): boolean {
 }
 
 /**
+ * Ship one event to the backend, fire and forget.
+ *
+ * `sendBeacon` first, because it is the only transport the browser promises
+ * to deliver after the page starts unloading -- and `gate_abandoned`, the
+ * event this whole path exists to capture, fires exactly then. A plain fetch
+ * is cancelled on unload, which would make abandonment silently under-count
+ * and the confirm ratio read flatteringly high. `keepalive` is the fallback
+ * with the same intent.
+ *
+ * The body is sent as text/plain ON PURPOSE. It is one of the three
+ * CORS-simple content types, so the request skips the preflight it could not
+ * survive during unload; application/json would trigger one. The backend
+ * reads the body raw and parses it itself for the same reason.
+ */
+function sendEvent(name: EventName, props?: EventProps): void {
+  const url = apiUrl("/events");
+  const body = JSON.stringify({ name, props: props ?? {} });
+
+  if (typeof navigator !== "undefined" && typeof navigator.sendBeacon === "function") {
+    const blob = new Blob([body], { type: "text/plain;charset=UTF-8" });
+    if (navigator.sendBeacon(url, blob)) return;
+    // sendBeacon returns false when the user agent refuses to queue it
+    // (usually a size cap); fall through rather than dropping the event.
+  }
+
+  void fetch(url, {
+    method: "POST",
+    body,
+    headers: { "Content-Type": "text/plain;charset=UTF-8" },
+    keepalive: true,
+    // No cookies, no credentials -- there is no session to send and the
+    // backend stores no identity.
+    credentials: "omit",
+    // Silence is the contract: a failed count must never reach the user.
+  }).catch(() => {});
+}
+
+/**
  * Emit one funnel event. Never throws, never returns a promise the caller
  * could await, and never participates in control flow -- callers must be
  * able to treat this as a no-op that happens to be observable.
@@ -105,7 +151,7 @@ export function trackEvent(name: EventName, props?: EventProps): void {
       return;
     }
     if (!isProductionBrowser()) return;
-    track(name, safe);
+    sendEvent(name, safe);
   } catch {
     // Fire and forget: instrumentation failure is never the user's problem.
   }

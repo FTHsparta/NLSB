@@ -35,6 +35,10 @@ CORS involved.
 | `NLSB_MAX_BODY_BYTES` | `65536` | Request body size cap, all routes (→ 413). | Backend (optional) |
 | `NLSB_MAX_IR_DEPTH` | `40` | Max client-supplied IR nesting depth at `/confirm` (→ 422). | Backend (optional) |
 | `NLSB_MAX_IR_NODES` | `2000` | Max client-supplied IR node count at `/confirm` (→ 422). | Backend (optional) |
+| `NLSB_EVENTS_ENABLED` | `true` | Record aggregate funnel counts (Phase 12E). | Backend (optional) |
+| `NLSB_DATA_DIR` | `/data` | Directory holding `events.sqlite3`. **Must match the Railway volume's mount path** — see below. | Backend |
+| `NLSB_EVENTS_TOKEN` | *(unset)* | Shared secret for the event read routes. **Unset ⇒ both routes 404** (fails closed). Secret — dashboard only. | Backend |
+| `NLSB_RATE_LIMIT_EVENTS_PER_MIN` | `60` | Per-IP limit on `POST /events`. The IP buckets the limit and is never stored. | Backend (optional) |
 | `NLSB_LOG_LEVEL` | `INFO` | Stdlib logging level. | Backend (optional) |
 | `NLSB_RUN_LIVE_SMOKE` | *(unset)* | Dev/manual only: opts in to the live-LLM smoke script (`backend/tests/smoke_injection_live.py`). Never set in CI or prod. | Local dev only |
 | `NEXT_PUBLIC_API_BASE_URL` | *(unset → relative paths + dev proxy)* | Backend origin the browser calls, e.g. `https://nlsb-backend.onrender.com`. Build-time inlined — changing it requires a Vercel redeploy. | Frontend (Vercel) |
@@ -73,6 +77,37 @@ Then set `ANTHROPIC_API_KEY` and `ALLOWED_ORIGINS` in the service variables.
 
 `/health` returns `{"status": "ok", "anthropic_key_present": true|false}` —
 the boolean is a readiness detail; it is never the key or any part of it.
+
+### Persistent volume (required for event counts)
+
+Event counting (Phase 12E) writes `events.sqlite3` under `NLSB_DATA_DIR`.
+Railway containers have an **ephemeral filesystem**: without a volume the
+database is recreated on every deploy and every restart, so the counts silently
+reset and the numbers you read are "since the last deploy", not "since launch".
+That failure is invisible — the endpoints keep working and keep returning
+plausible-looking figures.
+
+1. Add a **Volume** to the backend service.
+2. Set its mount path (e.g. `/data`).
+3. Set `NLSB_DATA_DIR` to **exactly that mount path**. A mismatch writes to the
+   container's own filesystem, which looks identical until a redeploy.
+
+If the directory is unwritable the app does not crash — it logs loudly, sets
+`storage_enabled: false` in the summary, and every other route continues
+working. Losing counts is acceptable; taking `/translate` and `/confirm` down
+because a volume was not mounted is not.
+
+### Reading the numbers
+
+Both read routes require `NLSB_EVENTS_TOKEN`, as `?token=…` or an
+`X-Events-Token` header. **Unset ⇒ both return 404**: an unset secret must
+never mean "readable by anyone". A wrong token also returns 404 rather than
+401, so probing reveals nothing about what exists.
+
+- `GET /events/summary?token=…` — JSON, including `total_backtests_completed`
+  and `gate_confirm_rate` as explicit fields.
+- `GET /events/summary/page?token=…` — the same numbers as a plain HTML table,
+  no client JS, readable on a phone.
 
 ## Frontend — Vercel
 

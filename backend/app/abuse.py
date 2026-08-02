@@ -114,12 +114,21 @@ def confirm_rate_limit_value() -> str:
     return f"{per_min}/minute"
 
 
+def events_rate_limit_value() -> str:
+    """Generous relative to the other routes on purpose: one visitor legitimately
+    emits several funnel events per session, and this endpoint does no LLM work
+    and no price fetch. The IP is used to bucket the limit and is never stored."""
+    per_min = os.environ.get("NLSB_RATE_LIMIT_EVENTS_PER_MIN", "60")
+    return f"{per_min}/minute"
+
+
 # A single shared_limit object applied to BOTH /translate and /correct makes
 # them draw from ONE budget per IP (scope="llm"), exactly as specified.
 llm_rate_limit = limiter.shared_limit(
     llm_rate_limit_value, scope="llm", exempt_when=_rate_limit_exempt
 )
 confirm_rate_limit = limiter.limit(confirm_rate_limit_value, exempt_when=_rate_limit_exempt)
+events_rate_limit = limiter.limit(events_rate_limit_value, exempt_when=_rate_limit_exempt)
 
 
 def reset_rate_limiter() -> None:

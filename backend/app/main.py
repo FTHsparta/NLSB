@@ -28,6 +28,8 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
+import hmac
+import json
 import logging
 import os
 import time
@@ -36,9 +38,10 @@ from typing import Any
 import jsonschema
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel
 from slowapi.errors import RateLimitExceeded
+from starlette.concurrency import run_in_threadpool
 
 from app import abuse
 from app.abuse import (
@@ -48,9 +51,16 @@ from app.abuse import (
     enforce_spend_budget,
     enforce_text_size,
     enforce_ticker,
+    events_rate_limit,
     limiter,
     llm_rate_limit,
 )
+from app.storage.events import event_store, events_token
+from app.storage.summary_page import render_events_summary
+
+# A funnel beacon is a handful of bytes; anything larger is not one. The
+# global body cap already applies, but this keeps /events cheap independently.
+MAX_EVENT_BODY_BYTES = 4096
 from app.data.market_data import InsufficientDataError, fetch_daily_bars
 from app.translation import service
 from app.translation.defaults import Assumption, DefaultingError
@@ -177,6 +187,86 @@ def health() -> dict:
         "status": "ok",
         "anthropic_key_present": bool(os.environ.get("ANTHROPIC_API_KEY")),
     }
+
+
+# --- Aggregate event counting (Phase 12E) -----------------------------------
+#
+# Vercel gates custom-event VIEWING behind its Pro plan, so the Phase 12D
+# client seam emitted events nobody on this plan could read. Only the sink
+# moved: the funnel points, the sanitizer, and their tests are unchanged.
+# Counting server-side is also the better instrument for this audience --
+# readers of an algorithmic-trading report block client analytics at high
+# rates, so a backend count is both more accurate and the only figure this
+# project can defend as its own.
+#
+# This endpoint is PUBLIC and UNAUTHENTICATED. `ALLOWED_EVENT_NAMES` and
+# `sanitize_properties` in `app.storage.events` are the security boundary; the
+# frontend's sanitizer is a convenience that a client is free to skip. It
+# never touches the LLM, the spend breaker, or yfinance.
+
+
+@app.post("/events")
+@events_rate_limit
+async def record_event_route(request: Request) -> JSONResponse:
+    """Ingest one funnel event. Always cheap, always success-shaped.
+
+    The body is read RAW rather than bound to a Pydantic model because the
+    browser sends it via `navigator.sendBeacon` as `text/plain`: that is one
+    of the three CORS-simple content types, so the beacon avoids a preflight
+    it could not survive on page unload. A JSON content type would make
+    `gate_abandoned` -- the event this whole path exists to capture -- the one
+    most likely to be dropped.
+
+    Success-shaped regardless of outcome, and deliberately so: the caller is a
+    fire-and-forget beacon that cannot react to a failure, so reporting one
+    would only add noise. Whether the row landed is in `recorded`.
+    """
+    recorded = False
+    try:
+        raw = await request.body()
+        if len(raw) <= MAX_EVENT_BODY_BYTES:
+            payload = json.loads(raw or b"{}")
+            if isinstance(payload, dict):
+                name = payload.get("name")
+                props = payload.get("props")
+                if isinstance(name, str):
+                    # The write is blocking SQLite; keep it off the event loop.
+                    recorded = await run_in_threadpool(event_store.record, name, props)
+    except Exception:  # noqa: BLE001 -- a malformed beacon is not an incident
+        logger.debug("discarded a malformed /events payload", exc_info=True)
+
+    return JSONResponse(status_code=202, content={"recorded": recorded})
+
+
+def _events_token_ok(request: Request, token: str | None) -> bool:
+    """Fail closed. With `NLSB_EVENTS_TOKEN` unset the read surface does not
+    exist -- an unset secret must never mean 'readable by anyone'."""
+    expected = events_token()
+    if not expected:
+        return False
+    supplied = token or request.headers.get("x-events-token") or ""
+    return hmac.compare_digest(supplied, expected)
+
+
+@app.get("/events/summary")
+async def events_summary_route(request: Request, token: str | None = None, days: int = 30) -> dict:
+    # 404, not 401: a wrong token and a nonexistent route are indistinguishable
+    # from outside, so probing tells an attacker nothing about what is here.
+    if not _events_token_ok(request, token):
+        raise HTTPException(status_code=404, detail="Not found")
+    return await run_in_threadpool(event_store.summary, days)
+
+
+@app.get("/events/summary/page", response_class=HTMLResponse)
+async def events_summary_page_route(
+    request: Request, token: str | None = None, days: int = 30
+) -> HTMLResponse:
+    """The same numbers as plain HTML. No framework, no client JS, no styling
+    ambition -- it exists to be readable on a phone."""
+    if not _events_token_ok(request, token):
+        raise HTTPException(status_code=404, detail="Not found")
+    summary = await run_in_threadpool(event_store.summary, days)
+    return HTMLResponse(content=render_events_summary(summary))
 
 
 # --- Dependencies (overridden in tests to avoid real network/LLM calls) ---

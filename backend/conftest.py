@@ -64,6 +64,12 @@ def _isolate_abuse_protection(monkeypatch):
     # Phase 12B: same reasoning for the price cache -- one test's patched
     # yf.download must never answer another test's fetch. Cache tests opt in.
     monkeypatch.setenv("NLSB_PRICE_CACHE_ENABLED", "false")
+    # Phase 12E: event recording writes to disk. Off by default so no test
+    # creates a database as a side effect; test_events.py opts back in and
+    # points the store at a tmp_path. Also keeps the read routes 404 (they
+    # fail closed on an unset token) unless a test sets one deliberately.
+    monkeypatch.setenv("NLSB_EVENTS_ENABLED", "false")
+    monkeypatch.delenv("NLSB_EVENTS_TOKEN", raising=False)
 
     # Clear process-global counters so no test inherits another's usage.
     abuse.spend_breaker.reset()
