@@ -1,6 +1,6 @@
 import Link from "next/link";
 
-import { backtestHref, EXAMPLE_STRATEGIES } from "@/lib/examples";
+import { ExampleChips } from "@/components/landing/ExampleChips";
 import { MOTION, staggerDelay } from "@/lib/motion";
 
 /**
@@ -97,18 +97,7 @@ export default function LandingPage() {
       {/* Example chips — land on /backtest with the example prefilled */}
       <section aria-label="Try an example" className="space-y-3">
         <h2 className="text-sm text-muted-foreground">Or start from an example:</h2>
-        <div className="flex flex-wrap gap-2">
-          {EXAMPLE_STRATEGIES.map((example) => (
-            <Link
-              key={example.label}
-              href={backtestHref(example.text)}
-              data-testid="landing-example-chip"
-              className={`inline-flex min-h-11 items-center rounded-full border border-border bg-card px-4 py-2 text-sm font-medium text-foreground sm:min-h-0 sm:px-3 sm:py-1.5 sm:text-xs ${MOTION.interactive} hover:border-foreground/40 hover:bg-muted`}
-            >
-              {example.label}
-            </Link>
-          ))}
-        </div>
+        <ExampleChips />
       </section>
     </div>
   );

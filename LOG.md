@@ -1525,3 +1525,74 @@ both sides at once.
 Next: the compute boundary — /confirm still has no concurrency limit and
 no request timeout, and one uvicorn process with a 40-thread pool is the
 whole capacity story.
+
+## 2026-08-02 — Phase 12D: surfaces and instrumentation, before the traffic
+
+**Lesson — instrumentation is the only work here with an expiring
+window.** Every other item on the pre-flight list shares a forgiving
+property: it can be fixed after it is observed failing. A missing
+timeout gets added once something hangs. A wrong rate-limit key gets
+fixed once users block each other. The gap is visible, the evidence
+survives, the repair is always available. An un-instrumented traffic
+event has none of that. If four hundred people arrive from a link and
+nothing is counted, "how many actually ran a backtest" and "what
+fraction accepted the gate" are not questions that get answered later —
+they are answered never. That asymmetry, not urgency, is why this phase
+came before the compute-boundary work that is objectively more likely to
+break something.
+
+The two events carrying the most information are gate_confirmed and
+gate_abandoned, because their ratio is the only direct measurement of
+whether strangers accept this product's central mechanism — being shown
+what was assumed on their behalf and being asked to agree before
+anything runs. Abandonment is the one with no happy-path trigger, so it
+is derived twice: leaving the gate backwards, and unmounting while still
+at it, which is what closing the tab looks like. With only the first,
+the ratio would read silently, flatteringly high.
+
+The rule most likely to erode later is that no event may carry the
+user's strategy text, so it is enforced by shape rather than by
+discipline. `sanitizeProps` whitelists bounded scalars and drops
+anything longer than forty characters, which means a future call site
+that passes `{ nlText }` by accident emits an event with that property
+missing instead of shipping free-text user input to a third party and
+waiting for someone to notice. The end-to-end test walks a full funnel
+and asserts no emitted value contains any word from the submitted
+strategy.
+
+Instrumentation sits in an effect watching `phase`, never inside a
+handler, and that placement is the invariant rather than a preference.
+Effects run after commit, so nothing in the observer can cause, block,
+or reorder a transition even if tracking misbehaves — pinned by a test
+that runs the entire flow with a sink that throws on every single event
+and still reaches results with both API calls made. A tracking call
+sitting inside `handleConfirm` would sit on the confirm path itself,
+which is precisely how gate integrity stops being structural.
+
+Two findings worth recording because both contradicted a reasonable
+assumption. First, this Next version's error boundary prop is
+`unstable_retry`, not `reset`; retry was added in 16.2.0 and the
+framework's own docs say to prefer it, because `reset` re-renders the
+children without re-fetching, and a boundary that most often catches a
+failed fetch would just fail again. Both props are accepted, retry
+preferred. Second, `next build` still prints `○ /_not-found` after a
+custom `not-found.tsx` exists — that line is Next's internal route
+identifier for the 404 boundary, present either way, and is not evidence
+of the stock default. What actually settles it is the artifact:
+`_not-found.html` now contains this site's copy, and Next's "This page
+could not be found" appears nowhere in the build. Reading a route table
+as a content check would have been wrong in both directions.
+
+ESLint caught something the type checker could not: a ref written during
+render. The unmount cleanup needs the last committed phase, and assigning
+`phaseRef.current` in the render body is the obvious way to keep it
+fresh and also a way for the ref to desync from what was actually
+committed. Moved into its own effect.
+
+Suite: frontend 158 -> 184 (+26: 9 error-surface, 17 funnel), backend
+321 unchanged and untouched — zero backend diff. tsc, eslint, next build
+clean. No new dependencies.
+
+Next: the compute boundary — /confirm still has no concurrency limit and
+no request timeout, and one uvicorn process with a 40-thread pool is the
+whole capacity story.

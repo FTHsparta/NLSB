@@ -24,6 +24,13 @@ export interface ErrorDescription {
   message: string;
   /** The original error text, preserved verbatim for an optional disclosure. */
   detail: string;
+  /**
+   * The parsed HTTP status, or null for a transport failure that never got
+   * one. Additive (Phase 12D): the funnel's `request_failed` event needs a
+   * bounded, low-cardinality value, and re-parsing `detail` at the call site
+   * would mean two copies of the same best-effort regex.
+   */
+  status: number | null;
 }
 
 const ACTION_VERB: Record<TranslationAction, string> = {
@@ -43,19 +50,24 @@ export function describeError(err: unknown, action: TranslationAction): ErrorDes
   const status = extractStatus(detail);
 
   if (status === null) {
-    return { message: `Couldn't reach the service while ${verb}. Make sure it's running and try again.`, detail };
+    return { message: `Couldn't reach the service while ${verb}. Make sure it's running and try again.`, detail, status };
   }
   if (status === 429) {
-    return { message: `Rate-limited while ${verb}. Try again in a moment.`, detail };
+    return { message: `Rate-limited while ${verb}. Try again in a moment.`, detail, status };
   }
   if (status === 408 || status === 504) {
-    return { message: `Timed out while ${verb}. Try again.`, detail };
+    return { message: `Timed out while ${verb}. Try again.`, detail, status };
   }
   if (status >= 500) {
     return {
       message: `Something went wrong while ${verb} -- this is not a problem with your strategy. Try again shortly.`,
       detail,
+      status,
     };
   }
-  return { message: `Your request couldn't be processed while ${verb}. Try again, or adjust your strategy.`, detail };
+  return {
+    message: `Your request couldn't be processed while ${verb}. Try again, or adjust your strategy.`,
+    detail,
+    status,
+  };
 }

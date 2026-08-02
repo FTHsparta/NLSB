@@ -1,8 +1,9 @@
 "use client";
 
-import { useReducer, useState } from "react";
+import { useEffect, useReducer, useRef, useState } from "react";
 import { RobustnessResultView } from "@/components/robustness/RobustnessResultView";
 import { CONFIRM_STAGES, ProgressIndicator } from "@/components/chrome/ProgressIndicator";
+import { EVENTS, trackEvent } from "@/lib/analytics";
 import { MOTION, staggerDelay } from "@/lib/motion";
 import type { RobustnessResult } from "@/lib/robustness/types";
 import { httpTranslationApi, type TranslationApi } from "@/lib/translation/api";
@@ -36,6 +37,8 @@ interface ActionError {
   action: "translate" | "correct" | "confirm";
   message: string;
   detail?: string;
+  /** Parsed HTTP status, for the `request_failed` funnel event only. */
+  status?: number | null;
 }
 
 interface FlowState {
@@ -58,13 +61,13 @@ interface FlowState {
 type FlowAction =
   | { type: "TRANSLATE_START"; nlText: string }
   | { type: "TRANSLATE_SUCCESS"; nlText: string; payload: TranslationPayload }
-  | { type: "TRANSLATE_ERROR"; message: string; detail?: string }
+  | { type: "TRANSLATE_ERROR"; message: string; detail?: string; status?: number | null }
   | { type: "CORRECT_START" }
   | { type: "CORRECT_SUCCESS"; payload: TranslationPayload }
-  | { type: "CORRECT_ERROR"; message: string; detail?: string }
+  | { type: "CORRECT_ERROR"; message: string; detail?: string; status?: number | null }
   | { type: "CONFIRM_START" }
   | { type: "CONFIRM_SUCCESS"; payload: RobustnessResult }
-  | { type: "CONFIRM_ERROR"; message: string; detail?: string }
+  | { type: "CONFIRM_ERROR"; message: string; detail?: string; status?: number | null }
   | { type: "RESET" }
   | { type: "BACK_TO_EDIT" };
 
@@ -94,7 +97,7 @@ function reducer(state: FlowState, action: FlowAction): FlowState {
       return {
         ...state,
         phase: "idle",
-        error: { action: "translate", message: action.message, detail: action.detail },
+        error: { action: "translate", message: action.message, detail: action.detail, status: action.status },
       };
     case "CORRECT_START":
       return { ...state, phase: "correcting", error: null };
@@ -111,7 +114,7 @@ function reducer(state: FlowState, action: FlowAction): FlowState {
       return {
         ...state,
         phase: "gate",
-        error: { action: "correct", message: action.message, detail: action.detail },
+        error: { action: "correct", message: action.message, detail: action.detail, status: action.status },
       };
     case "CONFIRM_START":
       return { ...state, phase: "confirming", error: null };
@@ -123,7 +126,7 @@ function reducer(state: FlowState, action: FlowAction): FlowState {
       return {
         ...state,
         phase: "gate",
-        error: { action: "confirm", message: action.message, detail: action.detail },
+        error: { action: "confirm", message: action.message, detail: action.detail, status: action.status },
       };
     case "RESET":
       // Whole-machine reset: back to a clean idle. `result` is cleared and
@@ -144,8 +147,91 @@ function reducer(state: FlowState, action: FlowAction): FlowState {
   }
 }
 
+/**
+ * Funnel instrumentation as a pure OBSERVER of the state machine.
+ *
+ * This is an effect watching `phase`, not a call inside any handler, and that
+ * placement is the invariant rather than a style preference: effects run after
+ * commit, so nothing here can cause, block, or reorder a transition even if
+ * `trackEvent` were to misbehave. A tracking call sitting inside
+ * `handleConfirm` would sit on the confirm path itself, which is exactly how
+ * gate integrity erodes.
+ *
+ * `gate_abandoned` is the one event with no happy-path trigger, so it is
+ * derived two ways: leaving the gate backwards (gate/correcting -> idle) and
+ * unmounting while still at the gate, which is what navigating away looks
+ * like. Without both, the confirmed/abandoned ratio -- the only direct
+ * measurement of whether strangers accept the gate -- silently reads high.
+ */
+function useFunnelEvents(state: FlowState) {
+  const previousPhase = useRef<Phase | null>(null);
+  // Read by the unmount cleanup, which would otherwise close over a stale
+  // phase from the render that installed it. Written in an effect, never
+  // during render -- a ref mutated mid-render can desync from what was
+  // actually committed.
+  const phaseRef = useRef<Phase>(state.phase);
+  useEffect(() => {
+    phaseRef.current = state.phase;
+  }, [state.phase]);
+
+  useEffect(() => {
+    const from = previousPhase.current;
+    const to = state.phase;
+    previousPhase.current = to;
+    if (from === to) return;
+
+    switch (to) {
+      case "translating":
+        trackEvent(EVENTS.strategySubmitted);
+        break;
+      case "gate":
+        // Only a genuine arrival at the gate. Returning from a failed confirm
+        // or correction is a re-entry, not a new gate impression.
+        if (from !== "confirming" && from !== "correcting") trackEvent(EVENTS.gateShown);
+        break;
+      case "confirming":
+        trackEvent(EVENTS.gateConfirmed);
+        break;
+      case "results":
+        trackEvent(EVENTS.resultShown, { kind: state.result?.kind ?? null, verdict: verdictKind(state.result) });
+        break;
+      case "idle":
+        if (from === "gate" || from === "correcting") trackEvent(EVENTS.gateAbandoned);
+        break;
+      default:
+        break;
+    }
+  }, [state.phase, state.result]);
+
+  // Errors are reported off the error object, not the phase: a failed confirm
+  // and a failed correction both land back on "gate", so phase alone can't
+  // distinguish them from an ordinary return.
+  const lastError = useRef<ActionError | null>(null);
+  useEffect(() => {
+    if (state.error && state.error !== lastError.current) {
+      trackEvent(EVENTS.requestFailed, { action: state.error.action, status: state.error.status ?? null });
+    }
+    lastError.current = state.error;
+  }, [state.error]);
+
+  useEffect(() => {
+    return () => {
+      const phase = phaseRef.current;
+      if (phase === "gate" || phase === "correcting") trackEvent(EVENTS.gateAbandoned);
+    };
+  }, []);
+}
+
+/** Bounded, low-cardinality: one of the four verdict names, or null. */
+function verdictKind(result: RobustnessResult | null): string | null {
+  if (!result || result.kind !== "full") return null;
+  return result.verdict?.verdict ?? null;
+}
+
 export function TranslateFlow({ api = httpTranslationApi, initialText }: TranslateFlowProps) {
   const [state, dispatch] = useReducer(reducer, INITIAL_STATE);
+
+  useFunnelEvents(state);
 
   async function handleTranslate(nlText: string) {
     // Double-submit guard: never launch a second in-flight request. The
@@ -157,8 +243,8 @@ export function TranslateFlow({ api = httpTranslationApi, initialText }: Transla
       const response = await api.translate(nlText);
       dispatch({ type: "TRANSLATE_SUCCESS", nlText, payload: response });
     } catch (err) {
-      const { message, detail } = describeError(err, "translate");
-      dispatch({ type: "TRANSLATE_ERROR", message, detail });
+      const { message, detail, status } = describeError(err, "translate");
+      dispatch({ type: "TRANSLATE_ERROR", message, detail, status });
     }
   }
 
@@ -170,8 +256,8 @@ export function TranslateFlow({ api = httpTranslationApi, initialText }: Transla
       const response = await api.correct(state.originalNl, state.translation.ir, correctionText);
       dispatch({ type: "CORRECT_SUCCESS", payload: response });
     } catch (err) {
-      const { message, detail } = describeError(err, "correct");
-      dispatch({ type: "CORRECT_ERROR", message, detail });
+      const { message, detail, status } = describeError(err, "correct");
+      dispatch({ type: "CORRECT_ERROR", message, detail, status });
     }
   }
 
@@ -184,8 +270,8 @@ export function TranslateFlow({ api = httpTranslationApi, initialText }: Transla
       const response = await api.confirm(state.translation.ir, state.translation.assumptions, ticker, start, end);
       dispatch({ type: "CONFIRM_SUCCESS", payload: response });
     } catch (err) {
-      const { message, detail } = describeError(err, "confirm");
-      dispatch({ type: "CONFIRM_ERROR", message, detail });
+      const { message, detail, status } = describeError(err, "confirm");
+      dispatch({ type: "CONFIRM_ERROR", message, detail, status });
     }
   }
 
